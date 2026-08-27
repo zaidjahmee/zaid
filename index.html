@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Daily inventory counts, sales totals, cash reconciliation, and employee shift tracking across multiple stores.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ledger">
+<meta name="theme-color" content="#171310">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Ledger</title>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  @import url('https://cdnjs.cloudflare.com/ajax/libs/jetbrains-mono/2.304/jetbrains-mono.css');
+
+  :root{
+    --ink:#171310;
+    --paper:#f3ede2;
+    --panel:#fffdf8;
+    --line:#e4dbc8;
+    --line-soft:#ede5d4;
+    --muted:#8c8170;
+    --accent:#b3401f;
+    --accent-soft:#f0dcd0;
+    --green:#3c8f7d;
+    --green-deep:#153f37;
+    --tobacco:#b23a2f;
+    --grabba:#c99a1f;
+    --grabba-deep:#4a3a05;
+    --vapes:#a63d84;
+    --good:#2f8f5b;
+    --bad:#b3401f;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans);}
+  .num{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* subtle paper texture via layered gradients */
+  body{
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(0,0,0,0.035) 1px, transparent 0);
+    background-size: 14px 14px;
+  }
+
+  header{
+    background:var(--ink);
+    color:#f4ede0;
+    padding:16px 16px 14px;
+    position:sticky; top:0; z-index:30;
+    box-shadow:0 3px 14px rgba(0,0,0,.18);
+  }
+  header .row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .brand{ display:flex; align-items:baseline; gap:8px;}
+  .brand .mark{
+    width:9px; height:9px; border-radius:2px; background:var(--accent);
+    display:inline-block; transform:rotate(45deg); margin-right:2px;
+  }
+  header h1{ margin:0; font-size:18px; font-weight:800; letter-spacing:-.01em;}
+  header .sub{ font-size:11.5px; color:#a89e8c; margin-top:3px; font-family:var(--mono);}
+  .head-controls{ display:flex; gap:6px; align-items:center;}
+  .store-input{
+    background:#2a241d; border:1px solid #3d362a; color:#f4ede0; border-radius:9px; padding:7px 9px;
+    font-size:12.5px; width:64px; font-family:var(--mono); font-weight:600; text-align:center;
+  }
+  .store-input::placeholder{color:#6e6656;}
+  .date-box{
+    display:flex; align-items:center; background:#2a241d; border:1px solid #3d362a; border-radius:9px; padding:6px 9px;
+  }
+  .date-box input[type=date]{
+    background:transparent; border:none; color:#f4ede0; font-size:12.5px; font-weight:600;
+    font-family:var(--mono); padding:0;
+  }
+  .date-box input[type=date]::-webkit-calendar-picker-indicator{ filter:invert(1); opacity:.65;}
+
+  .view-switch{
+    display:flex; gap:2px; margin-top:12px; background:#221d17; border-radius:10px; padding:3px;
+  }
+  .view-switch button{
+    flex:1; border:none; background:none; color:#a89e8c; font-family:var(--sans); font-weight:700;
+    font-size:12.5px; padding:8px 0; border-radius:8px; cursor:pointer;
+  }
+  .view-switch button.active{ background:#3a3226; color:#f4ede0;}
+
+  .store-tabs-wrap{ display:flex; align-items:center; gap:6px; margin-top:12px;}
+  .store-tabs{ display:flex; gap:6px; overflow-x:auto; flex:1; scroll-behavior:smooth;}
+  .store-chip{
+    flex:none; padding:7px 13px; border-radius:9px; background:#2a241d; border:1px solid #3d362a;
+    color:#c9c0ac; font-size:12.5px; font-weight:700; cursor:pointer; font-family:var(--sans); white-space:nowrap;
+  }
+  .store-chip.active{ background:var(--accent); border-color:var(--accent); color:#fff2ec;}
+
+  .day-tabs-wrap{ display:flex; align-items:center; gap:6px; margin-top:10px;}
+  .day-nav{
+    flex:none; width:28px; height:28px; border-radius:8px; background:#2a241d; border:1px solid #3d362a;
+    color:#c9c0ac; font-size:15px; font-weight:700; cursor:pointer; font-family:var(--sans);
+  }
+  .day-nav:active{ background:#3d362a;}
+  .day-tabs{ display:flex; gap:6px; overflow-x:auto; flex:1; scroll-behavior:smooth; padding:1px;}
+  .day-chip{
+    flex:none; min-width:42px; padding:6px 9px; border-radius:9px; background:#2a241d; border:1px solid #3d362a;
+    color:#c9c0ac; font-family:var(--mono); font-size:12.5px; font-weight:700; cursor:pointer;
+    position:relative; text-align:center;
+  }
+  .day-chip .dow{ display:block; font-size:8.5px; opacity:.7; font-weight:700; text-transform:uppercase; letter-spacing:.03em; font-family:var(--sans);}
+  .day-chip.active{ background:var(--accent); border-color:var(--accent); color:#fff2ec;}
+  .day-chip.has-data::after{
+    content:''; position:absolute; top:5px; right:6px; width:5px; height:5px; border-radius:50%; background:#7be0af;
+  }
+  .day-chip.active.has-data::after{ background:#fff2ec;}
+  .day-add{
+    flex:none; background:#2a241d; border:1px dashed #4a4131; color:#c9c0ac; border-radius:8px; padding:6px 10px;
+    font-size:11px; font-weight:700; cursor:pointer; font-family:var(--sans); white-space:nowrap;
+  }
+  .day-add:active{ border-color:var(--accent); color:var(--accent);}
+
+  main{ max-width:900px; margin:0 auto; padding:14px 12px 70px;}
+
+  /* search */
+  .search-wrap{ position:relative; margin:2px 0 12px;}
+  .search-wrap input{
+    width:100%; padding:10px 12px 10px 34px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel); font-size:14px; font-family:var(--sans);
+  }
+  .search-wrap input:focus{ outline:2px solid var(--accent); outline-offset:0;}
+  .search-icon{ position:absolute; left:11px; top:50%; transform:translateY(-50%); opacity:.4; font-size:14px;}
+
+  .tabs{
+    display:flex; gap:6px; margin-bottom:12px; overflow-x:auto; padding-bottom:2px;
+  }
+  .tab{
+    flex:none; padding:8px 14px; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); font-size:12.5px; font-weight:700; cursor:pointer; color:var(--muted);
+    white-space:nowrap; display:flex; align-items:center; gap:6px;
+  }
+  .tab .dot{ width:7px; height:7px; border-radius:2px; display:inline-block;}
+  .tab.active{ background:var(--ink); color:#f4ede0; border-color:var(--ink);}
+  .tab .tab-amt{ font-family:var(--mono); opacity:.75; font-size:11px;}
+
+  .cat-section{ margin-bottom:16px; border-radius:14px; overflow:hidden; border:1px solid var(--line); background:var(--panel);}
+  .cat-head{
+    padding:11px 14px; font-weight:800; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .cat-head .tot{ font-size:13.5px; font-weight:700; font-family:var(--mono);}
+  .cat-green .cat-head{ background:var(--green); color:#eafff9;}
+  .cat-tobacco .cat-head{ background:var(--tobacco); color:#fff2ef;}
+  .cat-grabba .cat-head{ background:var(--grabba); color:var(--grabba-deep);}
+  .cat-vapes .cat-head{ background:var(--vapes); color:#fdf0f9;}
+
+  .item-row{
+    display:grid;
+    grid-template-columns: 1fr 54px 54px 54px 46px 68px;
+    gap:5px;
+    align-items:center;
+    padding:8px 12px;
+    border-top:1px solid var(--line-soft);
+    font-size:13px;
+  }
+  .item-row.head{
+    font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700;
+    border-top:none; padding-bottom:5px; padding-top:10px;
+  }
+  .item-row.touched{ background:#faf6ea;}
+  .item-name{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .item-price{ font-size:10.5px; color:var(--muted); font-weight:500; display:block; font-family:var(--mono);}
+  .item-row input{
+    width:100%; border:1px solid var(--line); border-radius:7px; padding:7px 2px;
+    text-align:center; font-size:13px; font-family:var(--mono); background:#fbf8f1;
+  }
+  .item-row input:focus{ outline:2px solid var(--accent); outline-offset:1px; background:#fff;}
+  .sold-val{ text-align:center; font-weight:700; color:var(--ink); font-family:var(--mono);}
+  .sales-val{ text-align:right; font-weight:800; color:var(--good); font-family:var(--mono);}
+  .no-results{ padding:24px 14px; text-align:center; color:var(--muted); font-size:13px;}
+
+  .summary{
+    background:var(--ink); color:#f4ede0; border-radius:16px; padding:18px; margin-top:20px;
+    position:relative;
+  }
+  .summary h2{ margin:0 0 12px; font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:#a89e8c; display:flex; justify-content:space-between; align-items:center;}
+  .copy-btn{
+    background:#2a241d; border:1px solid #3d362a; color:#e6dcc8; font-size:11px; font-weight:700;
+    padding:6px 10px; border-radius:7px; cursor:pointer; font-family:var(--sans);
+  }
+  .copy-btn:active{ background:#3d362a;}
+  .send-btn{ background:var(--accent); border-color:var(--accent); color:#fff2ec;}
+  .send-btn:active{ background:#96341a;}
+  .srow{ display:flex; justify-content:space-between; padding:7px 0; border-top:1px solid #2b2519; font-size:14px;}
+  .srow:first-of-type{ border-top:none;}
+  .srow .swatch{ display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:8px;}
+  .srow .num{ font-size:13.5px;}
+  .srow.total{ font-weight:800; font-size:16px; border-top:1px solid #3d362a; margin-top:4px; padding-top:12px;}
+  .collect-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 0;}
+  .collect-row input{
+    width:110px; text-align:right; background:#241f18; border:1px solid #3d362a; color:#f4ede0;
+    border-radius:8px; padding:7px 9px; font-size:14px; font-family:var(--mono);
+  }
+  .missing{ font-weight:800;}
+  .missing.bad{ color:#ff9376;}
+  .missing.good{ color:#7be0af;}
+  .reset-link{
+    display:block; text-align:center; margin-top:14px; font-size:11.5px; color:#7d7461;
+    background:none; border:none; cursor:pointer; width:100%; padding:6px; font-family:var(--sans);
+  }
+
+  .shift-section{ margin-top:22px;}
+  .shift-section h2{ font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px;}
+  .shift-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:8px;
+  }
+  .shift-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .shift-grid label{ font-size:9.5px; text-transform:uppercase; color:var(--muted); font-weight:700; display:block; margin-bottom:3px; letter-spacing:.03em;}
+  .shift-grid input{
+    width:100%; border:1px solid var(--line); border-radius:7px; padding:8px; font-size:13px;
+    font-family:var(--sans); background:#fbf8f1;
+  }
+  .shift-grid input[type=time],.shift-grid input[type=number]{ font-family:var(--mono);}
+  .shift-foot{ display:flex; justify-content:space-between; align-items:center; margin-top:9px; font-size:12px; color:var(--muted); font-family:var(--mono);}
+  .del-btn{ background:none; border:none; color:var(--bad); font-size:12px; font-weight:700; cursor:pointer; padding:4px; font-family:var(--sans);}
+  .add-btn{
+    width:100%; padding:12px; border-radius:10px; border:1.5px dashed var(--line); background:none;
+    color:var(--muted); font-weight:700; font-size:13px; cursor:pointer; margin-top:6px; font-family:var(--sans);
+  }
+  .add-btn:active{ border-color:var(--accent); color:var(--accent);}
+  .payroll-total{
+    display:flex; justify-content:space-between; padding:10px 2px 4px; font-size:13px; font-weight:700;
+  }
+
+  /* history view */
+  .history-list{ display:flex; flex-direction:column; gap:8px;}
+  .history-row{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+    display:flex; justify-content:space-between; align-items:center; cursor:pointer;
+  }
+  .history-row:active{ background:#f4eddd;}
+  .history-date{ font-weight:700; font-size:13.5px;}
+  .history-sub{ font-size:11px; color:var(--muted); margin-top:2px;}
+  .history-amt{ text-align:right;}
+  .history-amt .rev{ font-family:var(--mono); font-weight:800; font-size:14px;}
+  .history-amt .diff{ font-family:var(--mono); font-size:11px; font-weight:700; margin-top:2px;}
+  .history-empty{ text-align:center; color:var(--muted); padding:40px 20px; font-size:13.5px;}
+
+  .week-nav{ display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom:12px;}
+  .week-label{ font-weight:700; font-size:14px; font-family:var(--mono); min-width:140px; text-align:center;}
+
+  .status{ text-align:center; font-size:11px; color:var(--muted); margin-top:16px; font-family:var(--mono);}
+  .toast{
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:#f4ede0; padding:10px 18px; border-radius:999px; font-size:12.5px;
+    font-weight:700; opacity:0; transition:all .25s ease; pointer-events:none; z-index:50;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0);}
+
+  .share-modal{
+    position:fixed; inset:0; background:rgba(15,12,9,.55); display:none; align-items:center;
+    justify-content:center; z-index:60; padding:20px;
+  }
+  .share-modal.show{ display:flex;}
+  .share-card{ background:var(--panel); border-radius:14px; padding:16px; width:100%; max-width:420px;}
+  .share-title{ font-weight:800; font-size:12px; margin-bottom:8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
+  .share-card textarea{
+    width:100%; height:170px; border:1px solid var(--line); border-radius:8px; padding:10px;
+    font-family:var(--mono); font-size:12px; resize:none; background:#fbf8f1; margin-bottom:10px; line-height:1.5;
+  }
+  .store-name-input{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px;
+    font-family:var(--sans); background:#fbf8f1;
+  }
+  .store-name-input:focus{ outline:2px solid var(--accent); outline-offset:0;}
+  ::-webkit-scrollbar{ height:0; width:0;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <div class="brand">
+      <div>
+        <h1><span class="mark"></span>Ledger</h1>
+        <div class="sub" id="dateLabel">loading…</div>
+      </div>
+    </div>
+    <div class="head-controls">
+      <div class="date-box"><input type="date" id="datePicker"></div>
+    </div>
+  </div>
+  <div class="store-tabs-wrap" id="storeTabsWrap">
+    <div class="store-tabs" id="storeTabs"></div>
+    <button class="day-add" id="addStoreBtn">+ Store</button>
+  </div>
+  <div class="view-switch">
+    <button id="btnSheet" class="active">Sheet</button>
+    <button id="btnWeek">Week</button>
+    <button id="btnHistory">History</button>
+  </div>
+  <div class="day-tabs-wrap" id="dayTabsWrap">
+    <button class="day-nav" id="dayPrev">‹</button>
+    <div class="day-tabs" id="dayTabs"></div>
+    <button class="day-nav" id="dayNext">›</button>
+    <button class="day-add" id="dayAddNext">+ Next day</button>
+  </div>
+</header>
+
+<main>
+  <div id="sheetView">
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="searchInput" placeholder="Search items…">
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div id="categories"></div>
+    <div class="summary" id="summary"></div>
+
+    <div class="shift-section">
+      <h2>Employee / Shift Tracking</h2>
+      <div id="shifts"></div>
+      <button class="add-btn" id="addShift">+ Add shift</button>
+      <div class="payroll-total" id="payrollTotal"></div>
+    </div>
+
+    <div class="status" id="status">Saved locally for this date</div>
+    <div class="status" id="syncBadge" style="opacity:.7;"></div>
+  </div>
+
+  <div id="historyView" style="display:none;">
+    <div class="history-list" id="historyList"></div>
+  </div>
+
+  <div id="weekView" style="display:none;">
+    <div class="week-nav">
+      <button class="day-nav" id="weekPrev">‹</button>
+      <div class="week-label" id="weekLabel">—</div>
+      <button class="day-nav" id="weekNext">›</button>
+    </div>
+    <div class="summary" id="weekSummary"></div>
+    <h2 style="font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 8px;">Day by day</h2>
+    <div class="history-list" id="weekDayList"></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<div class="share-modal" id="shareModal">
+  <div class="share-card">
+    <div class="share-title">Select all &amp; copy</div>
+    <textarea id="shareText" readonly></textarea>
+    <button class="add-btn" id="shareModalClose">Done</button>
+  </div>
+</div>
+
+<div class="share-modal" id="storeModal">
+  <div class="share-card">
+    <div class="share-title">New store</div>
+    <input type="text" id="newStoreInput" placeholder="e.g. Store 91" class="store-name-input">
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button class="add-btn" id="storeModalCancel" style="flex:1;">Cancel</button>
+      <button class="add-btn" id="storeModalAdd" style="flex:1; border-color:var(--accent); color:var(--accent); border-style:solid;">Add store</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===================== CLOUD SYNC CONFIG =====================
+// 1. Create a free project at https://supabase.com
+// 2. Run the SQL from setup.sql (included alongside this file) in the SQL Editor
+// 3. Paste your Project URL and anon public API key below (Settings > API)
+const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+const cloudEnabled = SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
+const sb = cloudEnabled ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let dayChannel = null;
+let storesChannel = null;
+
+function setSyncBadge(state){
+  // state: 'online' | 'offline' | 'syncing' | 'off'
+  const el = document.getElementById('syncBadge');
+  if (!el) return;
+  el.dataset.state = state;
+  el.textContent = state === 'online' ? '● synced'
+    : state === 'syncing' ? '● syncing…'
+    : state === 'offline' ? '● offline (saved on device)'
+    : '';
+}
+
+function isInputFocusedIn(containerId){
+  const el = document.activeElement;
+  const container = document.getElementById(containerId);
+  return !!(el && container && container.contains(el) && (el.tagName==='INPUT' || el.tagName==='TEXTAREA'));
+}
+
+// ===================== END CLOUD SYNC CONFIG =====================
+
+const CATS = [
+  {key:'green', label:'Green', color:'green', var:'--green'},
+  {key:'tobacco', label:'Tobacco', color:'tobacco', var:'--tobacco'},
+  {key:'grabba', label:'Grabba', color:'grabba', var:'--grabba'},
+  {key:'vapes', label:'Vapes', color:'vapes', var:'--vapes'},
+];
+
+const ITEMS = [
+  {n:"10s", p:10, c:"green"}, {n:"15s", p:15, c:"green"}, {n:"20s", p:20, c:"green"},
+  {n:"25s", p:25, c:"green"}, {n:"Munchie's", p:30, c:"green"}, {n:"7G's", p:40, c:"green"},
+  {n:"7G's-$25", p:25, c:"green"}, {n:"topshelf", p:50, c:"green"}, {n:"60s", p:60, c:"green"},
+  {n:"Tyson", p:40, c:"green"}, {n:"Flav", p:30, c:"green"}, {n:"Jar's", p:30, c:"green"},
+  {n:"pre rolls 10$", p:10, c:"green"}, {n:"pre roll 15$", p:15, c:"green"},
+  {n:"2GD", p:40, c:"green"}, {n:"1GD", p:25, c:"green"}, {n:"1GC", p:25, c:"green"},
+  {n:"2GC", p:40, c:"green"}, {n:"Blink", p:40, c:"green"}, {n:"JB", p:25, c:"green"},
+  {n:"wax 1 gram", p:10, c:"green"}, {n:"wax Oz", p:80, c:"green"},
+
+  {n:"Cigarettes", p:13, c:"tobacco"}, {n:"Backwoods Packs", p:10, c:"tobacco"},
+  {n:"Backwoods Loose", p:10, c:"tobacco"}, {n:"Zigzag", p:5, c:"tobacco"},
+  {n:"Entourage", p:2, c:"tobacco"}, {n:"Bluntville", p:2, c:"tobacco"},
+
+  {n:"YOLO", p:2, c:"grabba"}, {n:"Ted", p:2, c:"grabba"}, {n:"Hot Grabba $2", p:2, c:"grabba"},
+  {n:"Hot grabba $4", p:4, c:"grabba"}, {n:"Alien", p:2, c:"grabba"}, {n:"Gorilla", p:2, c:"grabba"},
+  {n:"$1", p:1, c:"grabba"}, {n:"Hot Head", p:2, c:"grabba"}, {n:"Bushead", p:2, c:"grabba"},
+
+  {n:"Airbar Diamond", p:15, c:"vapes"}, {n:"Airbar Nex", p:15, c:"vapes"}, {n:"Juul", p:15, c:"vapes"},
+  {n:"Razz", p:15, c:"vapes"}, {n:"25k Geek", p:25, c:"vapes"}, {n:"15k Geek", p:20, c:"vapes"},
+  {n:"Flum", p:15, c:"vapes"}, {n:"BC (1 flavor)", p:15, c:"vapes"}, {n:"Airbar Aura", p:15, c:"vapes"},
+  {n:"Lava", p:15, c:"vapes"}, {n:"Myle", p:15, c:"vapes"}, {n:"2.99 Loose Leaf", p:2.99, c:"vapes"},
+  {n:"Loose Leaf 5 Pack", p:10, c:"vapes"},
+];
+
+const fmt = n => '$' + (Math.round(n*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const todayStr = () => new Date().toISOString().slice(0,10);
+
+let currentDate = todayStr();
+let stores = [];        // [{id, name}]
+let activeStore = null; // store id
+let counts = {};
+let cashCollected = 0;
+let shiftsData = [];
+let activeTab = 'green';
+let searchTerm = '';
+let saveTimer = null;
+let currentView = 'sheet';
+let weekAnchor = todayStr();
+let savedDatesSet = new Set();
+
+function slugify(name){
+  let s = name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  if (!s) s = 'store';
+  let id = s, n = 2;
+  while (stores.some(st => st.id === id)){ id = s + '-' + n; n++; }
+  return id;
+}
+function storeName(id){
+  const st = stores.find(s => s.id === id);
+  return st ? st.name : '';
+}
+function dayKey(dateStr){
+  return 'day:' + activeStore + ':' + dateStr;
+}
+
+function addDays(dateStr, n){
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0,10);
+}
+
+function emptyCounts(){
+  const o = {};
+  ITEMS.forEach(it => o[it.n] = {had:'', gave:'', left:''});
+  return o;
+}
+
+function calcSold(it){
+  const c = counts[it.n] || {had:'',gave:'',left:''};
+  const had = parseFloat(c.had), gave = parseFloat(c.gave), left = parseFloat(c.left);
+  if (isNaN(had) && isNaN(gave) && isNaN(left)) return null;
+  return (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+}
+function isTouched(it){
+  const c = counts[it.n] || {};
+  return c.had !== '' || c.gave !== '' || c.left !== '';
+}
+function categoryTotal(catKey){
+  let tot = 0;
+  ITEMS.filter(i=>i.c===catKey).forEach(it=>{
+    const sold = calcSold(it);
+    if (sold) tot += sold * it.p;
+  });
+  return tot;
+}
+function totalInventoryValue(){
+  let tot = 0;
+  ITEMS.forEach(it=>{
+    const had = parseFloat((counts[it.n]||{}).had);
+    if (!isNaN(had)) tot += had * it.p;
+  });
+  return tot;
+}
+function totalItemsSold(){
+  let tot = 0;
+  ITEMS.forEach(it=>{
+    const sold = calcSold(it);
+    if (sold) tot += sold;
+  });
+  return tot;
+}
+function totalPayroll(){
+  return shiftsData.reduce((sum,s)=> sum + (parseFloat(s.pay)||0), 0);
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=> t.classList.remove('show'), 1600);
+}
+
+function renderDayTabs(){
+  const wrap = document.getElementById('dayTabs');
+  wrap.innerHTML = '';
+  for (let i=-3; i<=3; i++){
+    const d = addDays(currentDate, i);
+    const dateObj = new Date(d + 'T00:00:00');
+    const chip = document.createElement('button');
+    chip.className = 'day-chip' + (d===currentDate ? ' active':'') + (savedDatesSet.has(d) ? ' has-data':'');
+    chip.innerHTML = `<span class="dow">${dateObj.toLocaleDateString('en-US',{weekday:'short'})}</span>${dateObj.getDate()}`;
+    chip.addEventListener('click', ()=> loadDay(d));
+    wrap.appendChild(chip);
+  }
+  const active = wrap.querySelector('.active');
+  if (active) active.scrollIntoView({inline:'center', block:'nearest'});
+}
+
+document.getElementById('dayPrev').addEventListener('click', ()=> loadDay(addDays(currentDate, -1)));
+document.getElementById('dayNext').addEventListener('click', ()=> loadDay(addDays(currentDate, 1)));
+document.getElementById('dayAddNext').addEventListener('click', ()=> loadDay(addDays(currentDate, 1)));
+
+function renderTabs(){
+  const tabs = document.getElementById('tabs');
+  tabs.innerHTML = '';
+  CATS.forEach(cat=>{
+    const b = document.createElement('button');
+    b.className = 'tab' + (activeTab===cat.key ? ' active':'');
+    const amt = categoryTotal(cat.key);
+    b.innerHTML = `<span class="dot" style="background:var(${cat.var})"></span>${cat.label}${amt? `<span class="tab-amt">${fmt(amt)}</span>`:''}`;
+    b.onclick = () => { activeTab = cat.key; renderTabs(); renderCategories(); };
+    tabs.appendChild(b);
+  });
+}
+
+function renderCategories(){
+  const wrap = document.getElementById('categories');
+  wrap.innerHTML = '';
+  const term = searchTerm.trim().toLowerCase();
+
+  CATS.forEach(cat=>{
+    if (cat.key !== activeTab) return;
+    let items = ITEMS.filter(i=>i.c===cat.key);
+    if (term) items = items.filter(i=> i.n.toLowerCase().includes(term));
+
+    const section = document.createElement('div');
+    section.className = 'cat-section cat-' + cat.color;
+
+    const head = document.createElement('div');
+    head.className = 'cat-head';
+    head.innerHTML = `<span>${cat.label}</span><span class="tot num">${fmt(categoryTotal(cat.key))}</span>`;
+    section.appendChild(head);
+
+    if (items.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'no-results';
+      empty.textContent = `No items match "${searchTerm}"`;
+      section.appendChild(empty);
+      wrap.appendChild(section);
+      return;
+    }
+
+    const colHead = document.createElement('div');
+    colHead.className = 'item-row head';
+    colHead.innerHTML = `<div>Item</div><div style="text-align:center">Had</div><div style="text-align:center">Gave</div><div style="text-align:center">Left</div><div style="text-align:center">Sold</div><div style="text-align:right">Sales</div>`;
+    section.appendChild(colHead);
+
+    items.forEach(it=>{
+      const row = document.createElement('div');
+      row.className = 'item-row' + (isTouched(it) ? ' touched':'');
+      const c = counts[it.n] || {had:'',gave:'',left:''};
+      const sold = calcSold(it);
+
+      row.innerHTML = `
+        <div class="item-name">${it.n}<span class="item-price">${fmt(it.p)}</span></div>
+        <input type="number" inputmode="decimal" data-item="${it.n}" data-field="had" value="${c.had}">
+        <input type="number" inputmode="decimal" data-item="${it.n}" data-field="gave" value="${c.gave}">
+        <input type="number" inputmode="decimal" data-item="${it.n}" data-field="left" value="${c.left}">
+        <div class="sold-val num">${sold===null? '—' : sold}</div>
+        <div class="sales-val num">${sold? fmt(sold*it.p) : '—'}</div>
+      `;
+      section.appendChild(row);
+    });
+
+    wrap.appendChild(section);
+  });
+
+  wrap.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const item = e.target.dataset.item, field = e.target.dataset.field;
+      if (!counts[item]) counts[item] = {had:'',gave:'',left:''};
+      counts[item][field] = e.target.value;
+      renderCategories();
+      renderTabs();
+      renderSummary();
+      scheduleSave();
+    });
+  });
+}
+
+function renderSummary(){
+  const el = document.getElementById('summary');
+  const green = categoryTotal('green');
+  const tobacco = categoryTotal('tobacco');
+  const grabba = categoryTotal('grabba');
+  const vapes = categoryTotal('vapes');
+  const expected = green + tobacco + grabba + vapes;
+  const missing = cashCollected - expected;
+  const missingClass = missing < 0 ? 'bad' : 'good';
+  const missingLabel = missing < 0 ? 'Missing' : (missing > 0 ? 'Over' : 'Even');
+
+  el.innerHTML = `
+    <h2>Totals · Cash &amp; Card Check
+      <span style="display:flex; gap:6px;">
+        <button class="copy-btn" id="copyBtn">Copy</button>
+        <button class="copy-btn send-btn" id="sendBtn">Send ↗</button>
+      </span>
+    </h2>
+    <div class="srow"><span><span class="swatch" style="background:var(--green)"></span>Green total sales</span><span class="num">${fmt(green)}</span></div>
+    <div class="srow"><span><span class="swatch" style="background:var(--tobacco)"></span>Tobacco total sales</span><span class="num">${fmt(tobacco)}</span></div>
+    <div class="srow"><span><span class="swatch" style="background:var(--grabba)"></span>Grabba total sales</span><span class="num">${fmt(grabba)}</span></div>
+    <div class="srow"><span><span class="swatch" style="background:var(--vapes)"></span>Vapes total sales</span><span class="num">${fmt(vapes)}</span></div>
+    <div class="srow"><span>Total inventory value (on hand)</span><span class="num">${fmt(totalInventoryValue())}</span></div>
+    <div class="srow"><span>Total items sold</span><span class="num">${totalItemsSold()}</span></div>
+    <div class="srow total"><span>Expected revenue</span><span class="num">${fmt(expected)}</span></div>
+    <div class="collect-row">
+      <span>Cash / card collected</span>
+      <input type="number" inputmode="decimal" id="cashInput" value="${cashCollected || ''}" placeholder="0.00">
+    </div>
+    <div class="srow"><span>${missingLabel} / over</span><span class="num missing ${missingClass}">${fmt(Math.abs(missing))}</span></div>
+    <button class="reset-link" id="resetBtn">Clear all counts for this date</button>
+  `;
+
+  document.getElementById('cashInput').addEventListener('input', e=>{
+    cashCollected = parseFloat(e.target.value) || 0;
+    renderSummary();
+    scheduleSave();
+  });
+
+  function buildSummaryText(){
+    const lines = [
+      `${currentDate}${activeStore? ' — '+storeName(activeStore) : ''}`,
+      `Green: ${fmt(green)}`,
+      `Tobacco: ${fmt(tobacco)}`,
+      `Grabba: ${fmt(grabba)}`,
+      `Vapes: ${fmt(vapes)}`,
+      `Expected: ${fmt(expected)}`,
+      `Collected: ${fmt(cashCollected)}`,
+      `${missingLabel}: ${fmt(Math.abs(missing))}`,
+    ];
+    if (shiftsData.length){
+      lines.push('');
+      lines.push('Payroll: ' + fmt(totalPayroll()));
+    }
+    return lines.join('\n');
+  }
+
+  document.getElementById('copyBtn').addEventListener('click', ()=>{
+    copyText(buildSummaryText())
+      .then(ok => showToast(ok ? 'Summary copied' : 'Could not copy — see box below'))
+      .then(()=> { /* no-op */ });
+  });
+
+  document.getElementById('sendBtn').addEventListener('click', async ()=>{
+    const text = buildSummaryText();
+    const title = `Shift Sheet — ${currentDate}`;
+
+    if (navigator.share){
+      try{
+        await navigator.share({ title, text });
+        return; // shared successfully
+      }catch(err){
+        if (err && err.name === 'AbortError') return; // user cancelled the share sheet, not an error
+        // any other error (e.g. blocked in this embedded view) — fall through to copy
+      }
+    }
+
+    const copied = await copyText(text);
+    if (copied){
+      showToast('Sharing isn\'t available here — copied instead');
+    } else {
+      showShareModal(text);
+    }
+  });
+
+  async function copyText(text){
+    try{
+      await navigator.clipboard.writeText(text);
+      return true;
+    }catch(err){ /* fall through to legacy method */ }
+    try{
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    }catch(err){ return false; }
+  }
+
+  function showShareModal(text){
+    const modal = document.getElementById('shareModal');
+    const ta = document.getElementById('shareText');
+    ta.value = text;
+    modal.classList.add('show');
+    setTimeout(()=>{ ta.focus(); ta.select(); }, 50);
+  }
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    if (confirm('Clear all Had/Gave/Left counts and cash collected for ' + currentDate + '?')){
+      counts = emptyCounts();
+      cashCollected = 0;
+      renderTabs(); renderCategories(); renderSummary();
+      scheduleSave();
+      showToast('Cleared');
+    }
+  });
+}
+
+function hoursBetween(start, end){
+  if (!start || !end) return null;
+  const [sh,sm] = start.split(':').map(Number);
+  const [eh,em] = end.split(':').map(Number);
+  let mins = (eh*60+em) - (sh*60+sm);
+  if (mins < 0) mins += 24*60;
+  return Math.round((mins/60)*100)/100;
+}
+
+function renderShifts(){
+  const wrap = document.getElementById('shifts');
+  wrap.innerHTML = '';
+  shiftsData.forEach((s, idx)=>{
+    const hrs = hoursBetween(s.start, s.end);
+    const card = document.createElement('div');
+    card.className = 'shift-card';
+    card.innerHTML = `
+      <div class="shift-grid">
+        <div style="grid-column:1/-1;"><label>Employee</label><input data-idx="${idx}" data-field="employee" value="${s.employee||''}" placeholder="Name"></div>
+        <div><label>Start</label><input type="time" data-idx="${idx}" data-field="start" value="${s.start||''}"></div>
+        <div><label>End</label><input type="time" data-idx="${idx}" data-field="end" value="${s.end||''}"></div>
+        <div><label>Pay ($)</label><input type="number" inputmode="decimal" data-idx="${idx}" data-field="pay" value="${s.pay||''}"></div>
+        <div><label>Notes</label><input data-idx="${idx}" data-field="notes" value="${s.notes||''}"></div>
+      </div>
+      <div class="shift-foot">
+        <span>${hrs===null? 'set start/end' : hrs + ' hrs'}</span>
+        <button class="del-btn" data-del="${idx}">Remove</button>
+      </div>
+    `;
+    wrap.appendChild(card);
+  });
+
+  wrap.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const idx = e.target.dataset.idx, field = e.target.dataset.field;
+      shiftsData[idx][field] = e.target.value;
+      renderShifts();
+      scheduleSave();
+    });
+  });
+  wrap.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      shiftsData.splice(parseInt(e.target.dataset.del), 1);
+      renderShifts();
+      scheduleSave();
+    });
+  });
+
+  document.getElementById('payrollTotal').innerHTML =
+    shiftsData.length ? `<span>Total payroll today</span><span class="num">${fmt(totalPayroll())}</span>` : '';
+}
+
+document.getElementById('addShift').addEventListener('click', ()=>{
+  shiftsData.push({employee:'', start:'', end:'', pay:'', notes:''});
+  renderShifts();
+  scheduleSave();
+});
+
+document.getElementById('searchInput').addEventListener('input', e=>{
+  searchTerm = e.target.value;
+  renderCategories();
+});
+
+function scheduleSave(){
+  const status = document.getElementById('status');
+  status.textContent = 'Saving…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveDay, 400);
+}
+
+async function saveDay(){
+  const status = document.getElementById('status');
+  const payload = {counts, cashCollected, shifts: shiftsData};
+  // Always write local cache first so nothing is lost if the network drops mid-save.
+  try{
+    localStorage.setItem(dayKey(currentDate), JSON.stringify(payload));
+    if (!savedDatesSet.has(currentDate)){ savedDatesSet.add(currentDate); renderDayTabs(); }
+  }catch(err){
+    console.error(err);
+  }
+
+  if (!cloudEnabled){
+    status.textContent = 'Saved for ' + currentDate + ' (on this device only)';
+    return;
+  }
+
+  setSyncBadge('syncing');
+  try{
+    const { error } = await sb.from('ledger_days').upsert({
+      store_id: activeStore,
+      date: currentDate,
+      data: payload,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'store_id,date' });
+    if (error) throw error;
+    status.textContent = 'Saved for ' + currentDate;
+    setSyncBadge('online');
+  }catch(err){
+    console.error('cloud save failed', err);
+    status.textContent = 'Saved on this device — will sync when back online';
+    setSyncBadge('offline');
+  }
+}
+
+async function loadDay(dateStr){
+  currentDate = dateStr;
+  document.getElementById('datePicker').value = dateStr;
+  document.getElementById('dateLabel').textContent =
+    new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric', year:'numeric'});
+  const status = document.getElementById('status');
+  status.textContent = 'Loading…';
+
+  counts = emptyCounts();
+  cashCollected = 0;
+  shiftsData = [];
+  searchTerm = '';
+  document.getElementById('searchInput').value = '';
+
+  let parsed = null;
+
+  if (cloudEnabled){
+    setSyncBadge('syncing');
+    try{
+      const { data, error } = await sb.from('ledger_days')
+        .select('data')
+        .eq('store_id', activeStore)
+        .eq('date', dateStr)
+        .maybeSingle();
+      if (error) throw error;
+      if (data){
+        parsed = data.data;
+        // keep local cache fresh for offline use
+        localStorage.setItem(dayKey(dateStr), JSON.stringify(parsed));
+      }
+      setSyncBadge('online');
+    }catch(err){
+      console.error('cloud load failed, falling back to local cache', err);
+      setSyncBadge('offline');
+    }
+  }
+
+  if (!parsed){
+    try{
+      const raw = localStorage.getItem(dayKey(dateStr));
+      if (raw) parsed = JSON.parse(raw);
+    }catch(err){ /* nothing cached locally either */ }
+  }
+
+  if (parsed){
+    counts = {...emptyCounts(), ...(parsed.counts||{})};
+    cashCollected = parsed.cashCollected || 0;
+    shiftsData = parsed.shifts || [];
+    status.textContent = 'Saved for ' + dateStr;
+  }else{
+    status.textContent = 'No saved data for this date yet';
+  }
+
+  renderTabs();
+  renderCategories();
+  renderSummary();
+  renderShifts();
+  renderDayTabs();
+  subscribeToDayChanges();
+}
+
+// Live updates: if a teammate saves this same store/date from another device,
+// pull the fresh data in — unless the user is actively typing right now.
+function subscribeToDayChanges(){
+  if (!cloudEnabled) return;
+  if (dayChannel) sb.removeChannel(dayChannel);
+  dayChannel = sb.channel('ledger_days_' + activeStore)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'ledger_days',
+      filter: 'store_id=eq.' + activeStore
+    }, (payload) => {
+      const row = payload.new;
+      if (!row || row.date !== currentDate) return;
+      if (isInputFocusedIn('sheetView')) { showToast('Teammate updated this day — save to refresh'); return; }
+      loadDay(currentDate);
+      showToast('Updated by a teammate');
+    })
+    .subscribe();
+}
+
+async function fetchAllDaysForStore(){
+  // Returns a map of date -> dayData for the active store, preferring cloud data but
+  // falling back to (and merging in) whatever's cached locally so nothing is lost offline.
+  const map = {};
+  const prefix = 'day:' + activeStore + ':';
+  Object.keys(localStorage).filter(k => k.startsWith(prefix)).forEach(k=>{
+    try{ map[k.replace(prefix,'')] = JSON.parse(localStorage.getItem(k)); }catch(err){ /* skip corrupt entry */ }
+  });
+  if (cloudEnabled){
+    try{
+      const { data, error } = await sb.from('ledger_days').select('date,data').eq('store_id', activeStore);
+      if (error) throw error;
+      (data||[]).forEach(row => { map[row.date] = row.data; });
+    }catch(err){ console.error('cloud history fetch failed, using local cache only', err); }
+  }
+  return map;
+}
+
+async function renderHistory(){
+  const list = document.getElementById('historyList');
+  list.innerHTML = '<div class="history-empty">Loading…</div>';
+  try{
+    const dayMap = await fetchAllDaysForStore();
+    const dates = Object.keys(dayMap).sort().reverse();
+    if (dates.length === 0){
+      list.innerHTML = '<div class="history-empty">No saved days yet for this store. Start entering counts on today\'s sheet.</div>';
+      return;
+    }
+    const rows = [];
+    for (const d of dates){
+      const parsed = dayMap[d];
+      if (!parsed) continue;
+      const c = {...emptyCounts(), ...(parsed.counts||{})};
+      let expected = 0;
+      ITEMS.forEach(it=>{
+        const cc = c[it.n];
+        const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
+        if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
+        const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+        if (sold) expected += sold * it.p;
+      });
+      const collected = parsed.cashCollected || 0;
+      const diff = collected - expected;
+      rows.push({d, expected, collected, diff, hasCollected: !!parsed.cashCollected});
+    }
+
+    list.innerHTML = '';
+    rows.forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      const diffClass = r.diff < 0 ? 'bad' : (r.diff > 0 ? 'good' : '');
+      const diffLabel = !r.hasCollected ? '' : (r.diff < 0 ? 'Missing ' + fmt(Math.abs(r.diff)) : r.diff > 0 ? 'Over ' + fmt(r.diff) : 'Even');
+      row.innerHTML = `
+        <div>
+          <div class="history-date">${new Date(r.d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'})}</div>
+          <div class="history-sub">${r.d}</div>
+        </div>
+        <div class="history-amt">
+          <div class="rev">${fmt(r.expected)}</div>
+          <div class="diff missing ${diffClass}">${diffLabel}</div>
+        </div>
+      `;
+      row.addEventListener('click', ()=>{
+        switchView('sheet');
+        loadDay(r.d);
+      });
+      list.appendChild(row);
+    });
+  }catch(err){
+    list.innerHTML = '<div class="history-empty">Could not load history.</div>';
+    console.error(err);
+  }
+}
+
+function getMonday(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1 - day);
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0,10);
+}
+
+async function fetchDayData(dateStr){
+  if (cloudEnabled){
+    try{
+      const { data, error } = await sb.from('ledger_days')
+        .select('data').eq('store_id', activeStore).eq('date', dateStr).maybeSingle();
+      if (error) throw error;
+      if (data) return data.data;
+    }catch(err){ console.error('cloud fetch failed for', dateStr, err); }
+  }
+  try{
+    const raw = localStorage.getItem(dayKey(dateStr));
+    if (raw) return JSON.parse(raw);
+  }catch(err){ /* nothing saved for this day */ }
+  return null;
+}
+
+function computeDayTotals(dayData){
+  const totals = {green:0, tobacco:0, grabba:0, vapes:0};
+  if (!dayData) return {...totals, expected:0};
+  const c = {...emptyCounts(), ...(dayData.counts||{})};
+  ITEMS.forEach(it=>{
+    const cc = c[it.n];
+    const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
+    if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
+    const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+    if (sold) totals[it.c] += sold * it.p;
+  });
+  const expected = totals.green + totals.tobacco + totals.grabba + totals.vapes;
+  return {...totals, expected};
+}
+
+async function renderWeekView(){
+  const monday = getMonday(weekAnchor);
+  const sunday = addDays(monday, 6);
+  document.getElementById('weekLabel').textContent =
+    new Date(monday+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric'}) + ' – ' +
+    new Date(sunday+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric'});
+
+  const dayList = document.getElementById('weekDayList');
+  const summaryEl = document.getElementById('weekSummary');
+  dayList.innerHTML = '<div class="history-empty">Loading…</div>';
+  summaryEl.innerHTML = '';
+
+  const week = {green:0, tobacco:0, grabba:0, vapes:0, expected:0, collected:0, payroll:0};
+  const rows = [];
+
+  for (let i=0; i<7; i++){
+    const d = addDays(monday, i);
+    const data = await fetchDayData(d);
+    const t = computeDayTotals(data);
+    week.green += t.green; week.tobacco += t.tobacco; week.grabba += t.grabba; week.vapes += t.vapes;
+    week.expected += t.expected;
+    week.collected += (data && data.cashCollected) || 0;
+    week.payroll += (data && data.shifts) ? data.shifts.reduce((s,x)=> s + (parseFloat(x.pay)||0), 0) : 0;
+    rows.push({d, expected: t.expected, hasData: !!data});
+  }
+
+  const missing = week.collected - week.expected;
+  const missingClass = missing < 0 ? 'bad' : 'good';
+  const missingLabel = missing < 0 ? 'Missing' : (missing > 0 ? 'Over' : 'Even');
+
+  summaryEl.innerHTML = `
+    <h2>Week Totals</h2>
+    <div class="srow"><span><span class="swatch" style="background:var(--green)"></span>Green</span><span class="num">${fmt(week.green)}</span></div>
+    <div class="srow"><span><span class="swatch" style="background:var(--tobacco)"></span>Tobacco</span><span class="num">${fmt(week.tobacco)}</span></div>
+    <div class="srow"><span><span class="swatch" style="background:var(--grabba)"></span>Grabba</span><span class="num">${fmt(week.grabba)}</span></div>
+    <div class="srow"><span><span class="swatch" style="background:var(--vapes)"></span>Vapes</span><span class="num">${fmt(week.vapes)}</span></div>
+    <div class="srow total"><span>Expected revenue</span><span class="num">${fmt(week.expected)}</span></div>
+    <div class="srow"><span>Cash / card collected</span><span class="num">${fmt(week.collected)}</span></div>
+    <div class="srow"><span>${missingLabel} / over</span><span class="num missing ${missingClass}">${fmt(Math.abs(missing))}</span></div>
+    <div class="srow"><span>Payroll</span><span class="num">${fmt(week.payroll)}</span></div>
+  `;
+
+  dayList.innerHTML = '';
+  rows.forEach(r=>{
+    const row = document.createElement('div');
+    row.className = 'history-row';
+    const dObj = new Date(r.d + 'T00:00:00');
+    row.innerHTML = `
+      <div>
+        <div class="history-date">${dObj.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'})}</div>
+        <div class="history-sub">${r.hasData ? 'logged' : 'no entries'}</div>
+      </div>
+      <div class="history-amt"><div class="rev">${r.expected ? fmt(r.expected) : '—'}</div></div>
+    `;
+    row.addEventListener('click', ()=>{ switchView('sheet'); loadDay(r.d); });
+    dayList.appendChild(row);
+  });
+}
+
+document.getElementById('weekPrev').addEventListener('click', ()=>{ weekAnchor = addDays(weekAnchor, -7); renderWeekView(); });
+document.getElementById('weekNext').addEventListener('click', ()=>{ weekAnchor = addDays(weekAnchor, 7); renderWeekView(); });
+
+function switchView(view){
+  currentView = view;
+  document.getElementById('sheetView').style.display = view==='sheet' ? '' : 'none';
+  document.getElementById('historyView').style.display = view==='history' ? '' : 'none';
+  document.getElementById('weekView').style.display = view==='week' ? '' : 'none';
+  document.getElementById('btnSheet').classList.toggle('active', view==='sheet');
+  document.getElementById('btnHistory').classList.toggle('active', view==='history');
+  document.getElementById('btnWeek').classList.toggle('active', view==='week');
+  if (view === 'history') renderHistory();
+  if (view === 'week'){ weekAnchor = currentDate; renderWeekView(); }
+}
+
+document.getElementById('btnSheet').addEventListener('click', ()=> switchView('sheet'));
+document.getElementById('btnHistory').addEventListener('click', ()=> switchView('history'));
+document.getElementById('btnWeek').addEventListener('click', ()=> switchView('week'));
+document.getElementById('shareModalClose').addEventListener('click', ()=>{
+  document.getElementById('shareModal').classList.remove('show');
+});
+
+function renderStoreTabs(){
+  const wrap = document.getElementById('storeTabs');
+  wrap.innerHTML = '';
+  stores.forEach(st=>{
+    const chip = document.createElement('button');
+    chip.className = 'store-chip' + (st.id === activeStore ? ' active' : '');
+    chip.textContent = st.name;
+    chip.addEventListener('click', ()=> switchStore(st.id));
+    wrap.appendChild(chip);
+  });
+}
+
+async function saveStoresMeta(){
+  try{
+    localStorage.setItem('stores', JSON.stringify(stores));
+    localStorage.setItem('activeStore', activeStore);
+  }catch(err){ console.error('could not save store list', err); }
+
+  if (!cloudEnabled) return;
+  try{
+    const rows = stores.map(s => ({ id: s.id, name: s.name, updated_at: new Date().toISOString() }));
+    const { error } = await sb.from('ledger_stores').upsert(rows, { onConflict: 'id' });
+    if (error) throw error;
+  }catch(err){ console.error('cloud store save failed', err); }
+}
+
+async function pullStoresFromCloud(){
+  if (!cloudEnabled) return false;
+  try{
+    const { data, error } = await sb.from('ledger_stores').select('id,name').order('name');
+    if (error) throw error;
+    if (data && data.length){
+      stores = data.map(r => ({id: r.id, name: r.name}));
+      localStorage.setItem('stores', JSON.stringify(stores));
+      return true;
+    }
+  }catch(err){ console.error('cloud store fetch failed', err); }
+  return false;
+}
+
+function subscribeToStoreChanges(){
+  if (!cloudEnabled) return;
+  if (storesChannel) sb.removeChannel(storesChannel);
+  storesChannel = sb.channel('ledger_stores_all')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ledger_stores' }, async () => {
+      const changed = await pullStoresFromCloud();
+      if (changed){ renderStoreTabs(); }
+    })
+    .subscribe();
+}
+
+async function preloadSavedDates(){
+  const dayMap = await fetchAllDaysForStore();
+  savedDatesSet = new Set(Object.keys(dayMap));
+}
+
+async function switchStore(id){
+  if (id === activeStore) return;
+  activeStore = id;
+  await saveStoresMeta();
+  renderStoreTabs();
+  await preloadSavedDates();
+  await loadDay(currentDate);
+}
+
+async function addStore(name){
+  const id = slugify(name);
+  stores.push({id, name: name.trim()});
+  activeStore = id;
+  await saveStoresMeta();
+  renderStoreTabs();
+  savedDatesSet = new Set();
+  await loadDay(currentDate);
+}
+
+document.getElementById('addStoreBtn').addEventListener('click', ()=>{
+  document.getElementById('newStoreInput').value = '';
+  document.getElementById('storeModal').classList.add('show');
+  setTimeout(()=> document.getElementById('newStoreInput').focus(), 50);
+});
+document.getElementById('storeModalCancel').addEventListener('click', ()=>{
+  document.getElementById('storeModal').classList.remove('show');
+});
+document.getElementById('storeModalAdd').addEventListener('click', async ()=>{
+  const name = document.getElementById('newStoreInput').value.trim();
+  if (!name){ showToast('Enter a store name'); return; }
+  document.getElementById('storeModal').classList.remove('show');
+  await addStore(name);
+  showToast('Added ' + name);
+});
+document.getElementById('newStoreInput').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') document.getElementById('storeModalAdd').click();
+});
+
+// migrate data saved before multi-store support existed (bare 'day:YYYY-MM-DD' keys)
+async function migrateLegacyData(){
+  try{
+    const legacyKeys = Object.keys(localStorage).filter(k => /^day:\d{4}-\d{2}-\d{2}$/.test(k));
+    if (legacyKeys.length === 0) return false;
+
+    let legacyName = 'Store 1';
+    try{
+      const savedStore = localStorage.getItem('store');
+      if (savedStore) legacyName = savedStore;
+    }catch(err){ /* no legacy store name saved */ }
+
+    const id = slugify(legacyName);
+    stores = [{id, name: legacyName}];
+    activeStore = id;
+
+    for (const k of legacyKeys){
+      const date = k.replace('day:','');
+      const raw = localStorage.getItem(k);
+      if (raw){
+        localStorage.setItem('day:' + id + ':' + date, raw);
+      }
+      try{ localStorage.removeItem(k); }catch(err){ /* best effort cleanup */ }
+    }
+    await saveStoresMeta();
+    return true;
+  }catch(err){
+    console.error('migration failed', err);
+    return false;
+  }
+}
+
+async function init(){
+  const picker = document.getElementById('datePicker');
+  picker.value = currentDate;
+  picker.addEventListener('change', e=>{
+    if (e.target.value) loadDay(e.target.value);
+  });
+
+  try{
+    const savedStores = localStorage.getItem('stores');
+    if (savedStores) stores = JSON.parse(savedStores);
+  }catch(err){ /* no stores saved yet */ }
+
+  if (cloudEnabled){
+    await pullStoresFromCloud();
+    subscribeToStoreChanges();
+  }
+
+  if (!stores || stores.length === 0){
+    await migrateLegacyData();
+  }
+
+  if (!stores || stores.length === 0){
+    const id = slugify('Store 1');
+    stores = [{id, name:'Store 1'}];
+    activeStore = id;
+    await saveStoresMeta();
+  }
+
+  if (!activeStore){
+    try{
+      const savedActive = localStorage.getItem('activeStore');
+      activeStore = (savedActive && stores.some(s => s.id === savedActive)) ? savedActive : stores[0].id;
+    }catch(err){
+      activeStore = stores[0].id;
+    }
+  }
+
+  renderStoreTabs();
+  await preloadSavedDates();
+  await loadDay(currentDate);
+
+  // support manifest shortcuts: ?view=sheet | week | history
+  const params = new URLSearchParams(location.search);
+  const requestedView = params.get('view');
+  if (requestedView === 'week' || requestedView === 'history'){
+    switchView(requestedView);
+  }
+}
+
+init();
+
+window.addEventListener('online', ()=>{
+  if (cloudEnabled){ showToast('Back online — syncing…'); saveDay(); }
+});
+window.addEventListener('offline', ()=>{
+  if (cloudEnabled) setSyncBadge('offline');
+});
+
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.log('Service worker registration skipped:', err.message);
+    });
+  });
+}
+</script>
+</body>
+</html>
