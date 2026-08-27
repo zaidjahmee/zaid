@@ -388,6 +388,8 @@
       <button class="day-nav" id="weekNext">›</button>
     </div>
     <div class="summary" id="weekSummary"></div>
+    <h2 style="font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 8px;">Items sold this week</h2>
+    <div id="weekCategories"></div>
     <h2 style="font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 8px;">Day by day</h2>
     <div class="history-list" id="weekDayList"></div>
   </div>
@@ -555,6 +557,49 @@ function contrastText(hex){
 function catByKey(key){ return CATS.find(c => c.key === key); }
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function canvasToBlob(canvas){
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+async function copyText(text){
+  try{
+    await navigator.clipboard.writeText(text);
+    return true;
+  }catch(err){ /* fall through to legacy method */ }
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  }catch(err){ return false; }
+}
+
+async function copyRichText(plainText, html){
+  try{
+    const item = new ClipboardItem({
+      'text/plain': new Blob([plainText], {type:'text/plain'}),
+      'text/html': new Blob([html], {type:'text/html'}),
+    });
+    await navigator.clipboard.write([item]);
+    return true;
+  }catch(err){ /* rich clipboard not supported here — fall back to plain text */ }
+  return copyText(plainText);
+}
+
+function showShareModal(text){
+  const modal = document.getElementById('shareModal');
+  const ta = document.getElementById('shareText');
+  ta.value = text;
+  modal.classList.add('show');
+  setTimeout(()=>{ ta.focus(); ta.select(); }, 50);
+}
 
 // Default product catalog (seed data). This becomes mutable once loaded, since
 // items can be added/removed at runtime and synced to the cloud — see
@@ -1085,10 +1130,6 @@ function renderSummary(){
     return canvas;
   }
 
-  function canvasToBlob(canvas){
-    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-  }
-
   // Builds the whole sheet as one continuous spreadsheet-style table — every
   // product as its own row with a solid category-colored background (not just
   // the touched ones), followed by a totals block and a shift-tracking block —
@@ -1284,45 +1325,6 @@ function renderSummary(){
       showShareModal(text);
     }
   });
-
-  async function copyRichText(plainText, html){
-    try{
-      const item = new ClipboardItem({
-        'text/plain': new Blob([plainText], {type:'text/plain'}),
-        'text/html': new Blob([html], {type:'text/html'}),
-      });
-      await navigator.clipboard.write([item]);
-      return true;
-    }catch(err){ /* rich clipboard not supported here — fall back to plain text */ }
-    return copyText(plainText);
-  }
-
-  async function copyText(text){
-    try{
-      await navigator.clipboard.writeText(text);
-      return true;
-    }catch(err){ /* fall through to legacy method */ }
-    try{
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    }catch(err){ return false; }
-  }
-
-  function showShareModal(text){
-    const modal = document.getElementById('shareModal');
-    const ta = document.getElementById('shareText');
-    ta.value = text;
-    modal.classList.add('show');
-    setTimeout(()=>{ ta.focus(); ta.select(); }, 50);
-  }
 
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     if (confirm('Clear all Had/Gave/Left counts and cash collected for ' + currentDate + '?')){
@@ -1639,21 +1641,45 @@ function computeDayTotals(dayData){
   return {...totals, expected};
 }
 
+// Per-item had/gave/left/sold for a single day's saved data (touched items
+// only) — used to build the week's item-level breakdown by summing this
+// across all 7 days.
+function computeDayItemDetail(dayData){
+  const map = {};
+  if (!dayData) return map;
+  const c = {...emptyCounts(), ...(dayData.counts||{})};
+  ITEMS.forEach(it=>{
+    const cc = c[it.n];
+    if (!cc) return;
+    const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
+    if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
+    const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+    map[it.n] = { had: isNaN(had)?0:had, gave: isNaN(gave)?0:gave, left: isNaN(left)?0:left, sold };
+  });
+  return map;
+}
+
+let currentWeekLabel = '';
+
 async function renderWeekView(){
   const monday = getMonday(weekAnchor);
   const sunday = addDays(monday, 6);
-  document.getElementById('weekLabel').textContent =
+  currentWeekLabel =
     new Date(monday+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric'}) + ' – ' +
     new Date(sunday+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric'});
+  document.getElementById('weekLabel').textContent = currentWeekLabel;
 
   const dayList = document.getElementById('weekDayList');
   const summaryEl = document.getElementById('weekSummary');
+  const catsEl = document.getElementById('weekCategories');
   dayList.innerHTML = '<div class="history-empty">Loading…</div>';
   summaryEl.innerHTML = '';
+  catsEl.innerHTML = '';
 
   const week = {expected:0, collected:0, payroll:0};
   CATS.forEach(cat => { week[cat.key] = 0; });
   const rows = [];
+  const weekItems = {}; // item name -> {had,gave,left,sold,sales}
 
   for (let i=0; i<7; i++){
     const d = addDays(monday, i);
@@ -1664,6 +1690,19 @@ async function renderWeekView(){
     week.collected += (data && data.cashCollected) || 0;
     week.payroll += (data && data.shifts) ? data.shifts.reduce((s,x)=> s + (parseFloat(x.pay)||0), 0) : 0;
     rows.push({d, expected: t.expected, hasData: !!data});
+
+    const detail = computeDayItemDetail(data);
+    Object.keys(detail).forEach(name=>{
+      const item = ITEMS.find(it => it.n === name);
+      if (!item) return; // item may have since been removed from the catalog
+      const dd = detail[name];
+      if (!weekItems[name]) weekItems[name] = {had:0, gave:0, left:0, sold:0, sales:0};
+      weekItems[name].had += dd.had;
+      weekItems[name].gave += dd.gave;
+      weekItems[name].left += dd.left;
+      weekItems[name].sold += dd.sold;
+      weekItems[name].sales += dd.sold * item.p;
+    });
   }
 
   const missing = week.collected - week.expected;
@@ -1675,13 +1714,63 @@ async function renderWeekView(){
   `).join('');
 
   summaryEl.innerHTML = `
-    <h2>Week Totals</h2>
+    <h2>Week Totals
+      <span style="display:flex; gap:6px;">
+        <button class="copy-btn" id="weekCopyBtn">Copy</button>
+        <button class="copy-btn send-btn" id="weekSendBtn">Send ↗</button>
+      </span>
+    </h2>
     ${catRows}
     <div class="srow total"><span>Expected revenue</span><span class="num">${fmt(week.expected)}</span></div>
     <div class="srow"><span>Cash / card collected</span><span class="num">${fmt(week.collected)}</span></div>
     <div class="srow"><span>${missingLabel} / over</span><span class="num missing ${missingClass}">${fmt(Math.abs(missing))}</span></div>
     <div class="srow"><span>Payroll</span><span class="num">${fmt(week.payroll)}</span></div>
   `;
+
+  // Per-item breakdown for the week, grouped by category, read-only (no inputs —
+  // this is a summary across 7 days, not something you edit directly here).
+  CATS.forEach(cat=>{
+    const catItems = ITEMS.filter(it => it.c === cat.key && weekItems[it.n]);
+    if (catItems.length === 0) return;
+
+    const section = document.createElement('div');
+    section.className = 'cat-section';
+
+    const head = document.createElement('div');
+    head.className = 'cat-head';
+    head.style.background = cat.hex;
+    head.style.color = contrastText(cat.hex);
+    const catSales = catItems.reduce((sum, it) => sum + weekItems[it.n].sales, 0);
+    head.innerHTML = `<span>${esc(cat.label)}</span><span class="tot num">${fmt(catSales)}</span>`;
+    section.appendChild(head);
+
+    const colHead = document.createElement('div');
+    colHead.className = 'item-row head';
+    colHead.innerHTML = `<div>Item</div><div style="text-align:center">Had</div><div style="text-align:center">Gave</div><div style="text-align:center">Left</div><div style="text-align:center">Sold</div><div style="text-align:right">Sales</div>`;
+    section.appendChild(colHead);
+
+    catItems.forEach(it=>{
+      const w = weekItems[it.n];
+      const row = document.createElement('div');
+      row.className = 'item-row touched';
+      const cellStyle = 'text-align:center; font-family:var(--mono); font-size:13px; padding:7px 2px;';
+      row.innerHTML = `
+        <div class="item-name">${esc(it.n)}<span class="item-price">${fmt(it.p)}</span></div>
+        <div class="cell"><div style="${cellStyle}">${w.had}</div></div>
+        <div class="cell"><div style="${cellStyle}">${w.gave}</div></div>
+        <div class="cell"><div style="${cellStyle}">${w.left}</div></div>
+        <div class="sold-val num">${w.sold}</div>
+        <div class="sales-val num">${w.sold ? fmt(w.sales) : '—'}</div>
+      `;
+      section.appendChild(row);
+    });
+
+    catsEl.appendChild(section);
+  });
+
+  if (Object.keys(weekItems).length === 0){
+    catsEl.innerHTML = '<div class="no-results">No items logged this week yet.</div>';
+  }
 
   dayList.innerHTML = '';
   rows.forEach(r=>{
@@ -1697,6 +1786,242 @@ async function renderWeekView(){
     `;
     row.addEventListener('click', ()=>{ switchView('sheet'); loadDay(r.d); });
     dayList.appendChild(row);
+  });
+
+  wireWeekShareButtons(weekItems, week, missingLabel);
+}
+
+// ===================== WEEKLY SHARE (Copy / Send) =====================
+// Mirrors the daily buildSummaryText / buildSummaryHTML / buildSpreadsheetCapture,
+// but sourced from the week's aggregated per-item totals instead of a single
+// day's `counts`. Wired up fresh each time renderWeekView() runs.
+
+function buildWeekSummaryText(weekItems, week, missingLabel){
+  const lines = [`Week of ${currentWeekLabel}${activeStore ? ' — '+storeName(activeStore) : ''}`];
+
+  const pad = (s, w) => String(s).padEnd(w, ' ');
+  const padR = (s, w) => String(s).padStart(w, ' ');
+
+  CATS.forEach(cat=>{
+    const catItems = ITEMS.filter(it => it.c === cat.key && weekItems[it.n]);
+    if (catItems.length === 0) return;
+    const tableWidth = 16+1+4+1+4+1+4+1+4+1+9;
+    lines.push('');
+    lines.push(cat.label.toUpperCase());
+    lines.push(`${pad('Item',16)} ${padR('Had',4)} ${padR('Gave',4)} ${padR('Left',4)} ${padR('Sold',4)} ${padR('Sales',9)}`);
+    lines.push('-'.repeat(tableWidth));
+    catItems.forEach((it, idx)=>{
+      const w = weekItems[it.n];
+      const name = it.n.length > 16 ? it.n.slice(0,15)+'…' : it.n;
+      lines.push(`${pad(name,16)} ${padR(w.had,4)} ${padR(w.gave,4)} ${padR(w.left,4)} ${padR(w.sold,4)} ${padR(w.sold?fmt(w.sales):fmt(0),9)}`);
+      if (idx < catItems.length - 1) lines.push('-'.repeat(tableWidth));
+    });
+    lines.push('-'.repeat(tableWidth));
+  });
+
+  lines.push('');
+  lines.push('TOTALS');
+  const totalsLabelW = 18, totalsValW = 10;
+  const totalRow = (label, value) => lines.push(`${pad(label, totalsLabelW)} ${padR(value, totalsValW)}`);
+  lines.push('-'.repeat(totalsLabelW + 1 + totalsValW));
+  CATS.forEach(cat => totalRow(cat.label, fmt(week[cat.key])));
+  totalRow('Expected', fmt(week.expected));
+  totalRow('Collected', fmt(week.collected));
+  totalRow(missingLabel, fmt(Math.abs(week.collected - week.expected)));
+  if (week.payroll) totalRow('Payroll', fmt(week.payroll));
+
+  return lines.join('\n');
+}
+
+function buildWeekSummaryHTML(weekItems, week, missingLabel){
+  const cellStyle = 'border:1px solid #ccc; padding:4px 8px; font-family:sans-serif; font-size:13px;';
+  const parts = [`<div style="font-family:sans-serif; font-size:14px; color:#171310;">`];
+  parts.push(`<div style="font-weight:700; margin-bottom:10px;">Week of ${esc(currentWeekLabel)}${activeStore ? ' — '+esc(storeName(activeStore)) : ''}</div>`);
+
+  CATS.forEach(cat=>{
+    const catItems = ITEMS.filter(it => it.c === cat.key && weekItems[it.n]);
+    if (catItems.length === 0) return;
+    const hex = cat.hex;
+    parts.push(`<div style="font-weight:800; color:${hex}; margin:14px 0 4px; text-transform:uppercase; font-size:12px; letter-spacing:.04em;">${esc(cat.label)}</div>`);
+    parts.push(`<table style="border-collapse:collapse; width:100%; margin-bottom:4px;">`);
+    parts.push(`<tr style="background:${hex}; color:${contrastText(hex)};">
+      <th style="${cellStyle} text-align:left;">Item</th>
+      <th style="${cellStyle} text-align:center;">Had</th>
+      <th style="${cellStyle} text-align:center;">Gave</th>
+      <th style="${cellStyle} text-align:center;">Left</th>
+      <th style="${cellStyle} text-align:center;">Sold</th>
+      <th style="${cellStyle} text-align:right;">Sales</th>
+    </tr>`);
+    catItems.forEach(it=>{
+      const w = weekItems[it.n];
+      parts.push(`<tr>
+        <td style="${cellStyle} font-weight:600;">${esc(it.n)}</td>
+        <td style="${cellStyle} text-align:center;">${w.had}</td>
+        <td style="${cellStyle} text-align:center;">${w.gave}</td>
+        <td style="${cellStyle} text-align:center;">${w.left}</td>
+        <td style="${cellStyle} text-align:center;">${w.sold}</td>
+        <td style="${cellStyle} text-align:right; font-weight:700;">${w.sold ? fmt(w.sales) : fmt(0)}</td>
+      </tr>`);
+    });
+    parts.push(`</table>`);
+  });
+
+  parts.push(`<table style="border-collapse:collapse; width:100%; margin-top:10px;">`);
+  CATS.forEach(cat=>{
+    parts.push(`<tr><td style="${cellStyle} font-weight:700; color:${cat.hex};">${esc(cat.label)}</td><td style="${cellStyle} text-align:right;">${fmt(week[cat.key])}</td></tr>`);
+  });
+  parts.push(`<tr><td style="${cellStyle} font-weight:700;">Expected</td><td style="${cellStyle} text-align:right; font-weight:700;">${fmt(week.expected)}</td></tr>`);
+  parts.push(`<tr><td style="${cellStyle}">Collected</td><td style="${cellStyle} text-align:right;">${fmt(week.collected)}</td></tr>`);
+  const missing = week.collected - week.expected;
+  const missColor = missing < 0 ? '#b3401f' : '#2f8f5b';
+  parts.push(`<tr><td style="${cellStyle} font-weight:700; color:${missColor};">${esc(missingLabel)}</td><td style="${cellStyle} text-align:right; font-weight:700; color:${missColor};">${fmt(Math.abs(missing))}</td></tr>`);
+  if (week.payroll) parts.push(`<tr><td style="${cellStyle} font-weight:700;">Payroll</td><td style="${cellStyle} text-align:right;">${fmt(week.payroll)}</td></tr>`);
+  parts.push(`</table></div>`);
+  return parts.join('');
+}
+
+function buildWeekSpreadsheetCapture(weekItems, week, missingLabel){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#111; background:#fff; width:900px;';
+
+  const topBar = document.createElement('div');
+  topBar.style.cssText = 'background:#1B2432; height:16px;';
+  wrap.appendChild(topBar);
+
+  const dateRow = document.createElement('table');
+  dateRow.style.cssText = 'border-collapse:collapse; width:100%; margin:6px 0;';
+  dateRow.innerHTML = `<tr>
+    <td style="padding:4px 10px; font-weight:700; width:120px;">Week</td>
+    <td style="padding:4px 10px;">${esc(currentWeekLabel)}${activeStore ? ' (' + esc(storeName(activeStore)) + ')' : ''}</td>
+  </tr>`;
+  wrap.appendChild(dateRow);
+
+  const table = document.createElement('table');
+  table.style.cssText = 'border-collapse:collapse; width:100%; table-layout:fixed;';
+  const cols   = ['ITEM','Unit Price','Had','Gave','Left','Sold','Sales','Category'];
+  const widths = ['24%','12%','8%','8%','8%','8%','12%','20%'];
+  const aligns = ['left','right','center','center','center','center','right','left'];
+  let html = '<colgroup>' + widths.map(w => `<col style="width:${w}">`).join('') + '</colgroup>';
+  html += '<tr>' + cols.map((c,i) =>
+    `<th style="background:#2554E0; color:#fff; font-weight:700; padding:6px 8px; border:1px solid #999; text-align:${aligns[i]};">${c}</th>`
+  ).join('') + '</tr>';
+
+  ITEMS.forEach(it=>{
+    const itCat = catByKey(it.c);
+    const bg = itCat ? itCat.brightHex : '#eee';
+    const w = weekItems[it.n];
+    const catLabel = itCat ? itCat.label : it.c;
+    html += `<tr>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999;">${esc(it.n)}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:right;">${fmt(it.p)}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${w ? w.had : ''}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${w ? w.gave : ''}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${w ? w.left : ''}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${w ? w.sold : ''}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:right;">${w ? fmt(w.sales) : ''}</td>
+      <td style="background:${bg}; padding:5px 8px; border:1px solid #999;">${esc(catLabel)}</td>
+    </tr>`;
+  });
+  table.innerHTML = html;
+  wrap.appendChild(table);
+
+  const spacer1 = document.createElement('div'); spacer1.style.height = '16px'; wrap.appendChild(spacer1);
+
+  const totalsHeader = document.createElement('div');
+  totalsHeader.style.cssText = 'background:#1B2432; color:#fff; font-weight:700; text-align:center; padding:6px; border:1px solid #999;';
+  totalsHeader.textContent = 'WEEK TOTALS / CASH & CARD CHECK';
+  wrap.appendChild(totalsHeader);
+
+  const missing = week.collected - week.expected;
+  const isNeg = missing < 0;
+  const totalRows = [
+    ...CATS.map(cat => ({ label: cat.label.toUpperCase() + ' TOTAL SALES', value: fmt(week[cat.key]), bg: cat.brightHex })),
+    { label:'EXPECTED REVENUE',    value: fmt(week.expected),  bg:'#e6e6e6' },
+    { label:'CASH/CARD COLLECTED', value: fmt(week.collected), bg:'#e6e6e6' },
+    { label:'MISSING / OVER',      value: (isNeg?'-':'') + fmt(Math.abs(missing)), bg: isNeg ? '#f8b4b4' : '#c8f0c8' },
+  ];
+  if (week.payroll) totalRows.push({ label:'PAYROLL', value: fmt(week.payroll), bg:'#e6e6e6' });
+
+  const totalsTable = document.createElement('table');
+  totalsTable.style.cssText = 'border-collapse:collapse; width:100%;';
+  totalsTable.innerHTML = totalRows.map(r => `<tr>
+    <td style="background:${r.bg}; font-weight:700; padding:5px 8px; border:1px solid #999; width:60%;">${r.label}</td>
+    <td style="padding:5px 8px; border:1px solid #999; text-align:right;">${r.value}</td>
+  </tr>`).join('');
+  wrap.appendChild(totalsTable);
+
+  return wrap;
+}
+
+async function captureWeekSheetImage(weekItems, week, missingLabel){
+  if (typeof html2canvas === 'undefined') return null;
+  const root = buildWeekSpreadsheetCapture(weekItems, week, missingLabel);
+  root.style.position = 'fixed';
+  root.style.left = '-9999px';
+  root.style.top = '0';
+  document.body.appendChild(root);
+  try{
+    await new Promise(r => setTimeout(r, 30));
+    return await html2canvas(root, { backgroundColor: '#f3ede2', scale: 2 });
+  }catch(err){
+    console.error('week capture failed', err);
+    return null;
+  }finally{
+    root.remove();
+  }
+}
+
+function wireWeekShareButtons(weekItems, week, missingLabel){
+  const copyBtn = document.getElementById('weekCopyBtn');
+  const sendBtn = document.getElementById('weekSendBtn');
+  if (!copyBtn || !sendBtn) return;
+
+  copyBtn.addEventListener('click', ()=>{
+    copyRichText(buildWeekSummaryText(weekItems, week, missingLabel), buildWeekSummaryHTML(weekItems, week, missingLabel))
+      .then(ok => showToast(ok ? 'Week summary copied (with colors — paste into Gmail, Notes, Docs, etc.)' : 'Could not copy — see box below'));
+  });
+
+  sendBtn.addEventListener('click', async ()=>{
+    const title = `Week Sheet — ${currentWeekLabel}`;
+    const filename = `week-sheet-${weekAnchor}.png`;
+
+    let blob = null;
+    try{
+      const canvas = await captureWeekSheetImage(weekItems, week, missingLabel);
+      if (canvas) blob = await canvasToBlob(canvas);
+    }catch(err){ console.error('week image generation failed', err); }
+
+    if (blob){
+      const file = new File([blob], filename, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })){
+        try{
+          await navigator.share({ title, files: [file] });
+          return;
+        }catch(err){
+          if (err && err.name === 'AbortError') return;
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=> URL.revokeObjectURL(url), 2000);
+      showToast('Image downloaded');
+      return;
+    }
+
+    // Fallback to plain text share if image generation failed entirely.
+    const text = buildWeekSummaryText(weekItems, week, missingLabel);
+    if (navigator.share){
+      try{ await navigator.share({ title, text }); return; }
+      catch(err){ if (err && err.name === 'AbortError') return; }
+    }
+    const copied = await copyText(text);
+    if (copied){ showToast('Sharing isn\'t available here — copied instead'); }
+    else { showShareModal(text); }
   });
 }
 
@@ -1829,6 +2154,8 @@ function subscribeToItemChanges(){
         renderTabs();
         renderCategories();
         renderSummary();
+        if (currentView === 'week') renderWeekView();
+        if (currentView === 'history') renderHistory();
       }
     })
     .subscribe();
@@ -1917,6 +2244,8 @@ function subscribeToCategoryChanges(){
         renderTabs();
         renderCategories();
         renderSummary();
+        if (currentView === 'week') renderWeekView();
+        if (currentView === 'history') renderHistory();
       }
     })
     .subscribe();
