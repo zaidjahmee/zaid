@@ -395,6 +395,48 @@ function isInputFocusedIn(containerId){
   return !!(el && container && container.contains(el) && (el.tagName==='INPUT' || el.tagName==='TEXTAREA'));
 }
 
+// Re-rendering a section with innerHTML='' destroys and recreates its inputs,
+// which drops keyboard focus mid-typing (e.g. typing "10" only registers the "1").
+// This wraps a render call so the previously-focused input regains focus + cursor
+// position afterward, identified by its data-* attributes (or id) rather than a
+// CSS selector, since item names can contain characters like ' and $ that would
+// otherwise need escaping.
+function withFocusPreserved(renderFn, containerId){
+  const active = document.activeElement;
+  const container = containerId ? document.getElementById(containerId) : null;
+  let info = null;
+  if (active && active.tagName === 'INPUT' && (!container || container.contains(active))){
+    info = {
+      id: active.id || null,
+      item: active.dataset.item ?? null,
+      field: active.dataset.field ?? null,
+      idx: active.dataset.idx ?? null,
+      selStart: active.selectionStart,
+      selEnd: active.selectionEnd
+    };
+  }
+  renderFn();
+  if (info){
+    let el = null;
+    if (info.id){
+      el = document.getElementById(info.id);
+    }else{
+      const scope = container || document;
+      el = Array.from(scope.querySelectorAll('input')).find(inp =>
+        (inp.dataset.item ?? null) === info.item &&
+        (inp.dataset.field ?? null) === info.field &&
+        (inp.dataset.idx ?? null) === info.idx
+      );
+    }
+    if (el){
+      el.focus();
+      if (typeof info.selStart === 'number'){
+        try{ el.setSelectionRange(info.selStart, info.selEnd); }catch(err){ /* not a text-selectable input type */ }
+      }
+    }
+  }
+}
+
 // ===================== END CLOUD SYNC CONFIG =====================
 
 const CATS = [
@@ -430,6 +472,19 @@ const ITEMS = [
 ];
 
 const fmt = n => '$' + (Math.round(n*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+// Amount fields use type="text" (not type="number") because number inputs can't have
+// their cursor position restored after a re-render, which broke typing multi-digit
+// values. This keeps only digits and a single decimal point.
+function sanitizeAmount(str){
+  let out = '';
+  let seenDot = false;
+  for (const ch of str){
+    if (ch >= '0' && ch <= '9'){ out += ch; }
+    else if (ch === '.' && !seenDot){ out += ch; seenDot = true; }
+  }
+  return out;
+}
 const todayStr = () => new Date().toISOString().slice(0,10);
 
 let currentDate = todayStr();
@@ -591,9 +646,9 @@ function renderCategories(){
 
       row.innerHTML = `
         <div class="item-name">${it.n}<span class="item-price">${fmt(it.p)}</span></div>
-        <input type="number" inputmode="decimal" data-item="${it.n}" data-field="had" value="${c.had}">
-        <input type="number" inputmode="decimal" data-item="${it.n}" data-field="gave" value="${c.gave}">
-        <input type="number" inputmode="decimal" data-item="${it.n}" data-field="left" value="${c.left}">
+        <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="had" value="${c.had}">
+        <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="gave" value="${c.gave}">
+        <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="left" value="${c.left}">
         <div class="sold-val num">${sold===null? '—' : sold}</div>
         <div class="sales-val num">${sold? fmt(sold*it.p) : '—'}</div>
       `;
@@ -605,12 +660,12 @@ function renderCategories(){
 
   wrap.querySelectorAll('input').forEach(inp=>{
     inp.addEventListener('input', e=>{
+      const clean = sanitizeAmount(e.target.value);
+      if (clean !== e.target.value) e.target.value = clean;
       const item = e.target.dataset.item, field = e.target.dataset.field;
       if (!counts[item]) counts[item] = {had:'',gave:'',left:''};
-      counts[item][field] = e.target.value;
-      renderCategories();
-      renderTabs();
-      renderSummary();
+      counts[item][field] = clean;
+      withFocusPreserved(()=>{ renderCategories(); renderTabs(); renderSummary(); }, 'categories');
       scheduleSave();
     });
   });
@@ -643,15 +698,17 @@ function renderSummary(){
     <div class="srow total"><span>Expected revenue</span><span class="num">${fmt(expected)}</span></div>
     <div class="collect-row">
       <span>Cash / card collected</span>
-      <input type="number" inputmode="decimal" id="cashInput" value="${cashCollected || ''}" placeholder="0.00">
+      <input type="text" inputmode="decimal" autocomplete="off" id="cashInput" value="${cashCollected || ''}" placeholder="0.00">
     </div>
     <div class="srow"><span>${missingLabel} / over</span><span class="num missing ${missingClass}">${fmt(Math.abs(missing))}</span></div>
     <button class="reset-link" id="resetBtn">Clear all counts for this date</button>
   `;
 
   document.getElementById('cashInput').addEventListener('input', e=>{
-    cashCollected = parseFloat(e.target.value) || 0;
-    renderSummary();
+    const clean = sanitizeAmount(e.target.value);
+    if (clean !== e.target.value) e.target.value = clean;
+    cashCollected = parseFloat(clean) || 0;
+    withFocusPreserved(renderSummary, 'summary');
     scheduleSave();
   });
 
@@ -760,7 +817,7 @@ function renderShifts(){
         <div style="grid-column:1/-1;"><label>Employee</label><input data-idx="${idx}" data-field="employee" value="${s.employee||''}" placeholder="Name"></div>
         <div><label>Start</label><input type="time" data-idx="${idx}" data-field="start" value="${s.start||''}"></div>
         <div><label>End</label><input type="time" data-idx="${idx}" data-field="end" value="${s.end||''}"></div>
-        <div><label>Pay ($)</label><input type="number" inputmode="decimal" data-idx="${idx}" data-field="pay" value="${s.pay||''}"></div>
+        <div><label>Pay ($)</label><input type="text" inputmode="decimal" autocomplete="off" data-idx="${idx}" data-field="pay" value="${s.pay||''}"></div>
         <div><label>Notes</label><input data-idx="${idx}" data-field="notes" value="${s.notes||''}"></div>
       </div>
       <div class="shift-foot">
@@ -774,8 +831,13 @@ function renderShifts(){
   wrap.querySelectorAll('input').forEach(inp=>{
     inp.addEventListener('input', e=>{
       const idx = e.target.dataset.idx, field = e.target.dataset.field;
-      shiftsData[idx][field] = e.target.value;
-      renderShifts();
+      let val = e.target.value;
+      if (field === 'pay'){
+        val = sanitizeAmount(val);
+        if (val !== e.target.value) e.target.value = val;
+      }
+      shiftsData[idx][field] = val;
+      withFocusPreserved(renderShifts, 'shifts');
       scheduleSave();
     });
   });
