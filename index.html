@@ -178,6 +178,17 @@
   .sold-val{ text-align:center; font-weight:700; color:var(--ink); font-family:var(--mono);}
   .sales-val{ text-align:right; font-weight:800; color:var(--good); font-family:var(--mono);}
   .no-results{ padding:24px 14px; text-align:center; color:var(--muted); font-size:13px;}
+  .item-del{
+    display:inline-block; margin-left:6px; color:var(--muted); font-weight:700; cursor:pointer;
+    font-family:var(--sans); font-size:13px; line-height:1; vertical-align:middle;
+  }
+  .item-del:hover{ color:var(--bad); }
+  .add-item-row{
+    width:100%; border:1px dashed var(--line); background:none; border-radius:9px;
+    padding:10px; margin-top:8px; font-size:12.5px; font-weight:700; color:var(--muted);
+    font-family:var(--sans); cursor:pointer;
+  }
+  .add-item-row:hover{ border-color:var(--accent); color:var(--accent); }
 
   .summary{
     background:var(--ink); color:#f4ede0; border-radius:16px; padding:18px; margin-top:20px;
@@ -365,13 +376,25 @@
   </div>
 </div>
 
+<div class="share-modal" id="itemModal">
+  <div class="share-card">
+    <div class="share-title" id="itemModalTitle">New item</div>
+    <input type="text" id="newItemName" placeholder="Item name" class="store-name-input" style="width:100%; margin-bottom:8px;">
+    <input type="text" inputmode="decimal" id="newItemPrice" placeholder="Price (e.g. 15)" class="store-name-input" style="width:100%;">
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button class="add-btn" id="itemModalCancel" style="flex:1;">Cancel</button>
+      <button class="add-btn" id="itemModalAdd" style="flex:1; border-color:var(--accent); color:var(--accent); border-style:solid;">Add item</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ===================== CLOUD SYNC CONFIG =====================
 // 1. Create a free project at https://supabase.com
 // 2. Run the SQL from setup.sql (included alongside this file) in the SQL Editor
 // 3. Paste your Project URL and anon public API key below (Settings > API)
-const SUPABASE_URL = 'https://octzrkfaozkmwkqyaalb.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_7QKiTxoIf3HPppoDi8lHXQ_WYscXmKQ';
+const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 const cloudEnabled = SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
 const sb = cloudEnabled ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -446,7 +469,10 @@ const CATS = [
   {key:'vapes', label:'Vapes', color:'vapes', var:'--vapes'},
 ];
 
-const ITEMS = [
+// Default product catalog (seed data). This becomes mutable once loaded, since
+// items can be added/removed at runtime and synced to the cloud — see
+// pullItemsFromCloud() / saveItemToCloud() further down.
+let ITEMS = [
   {n:"10s", p:10, c:"green"}, {n:"15s", p:15, c:"green"}, {n:"20s", p:20, c:"green"},
   {n:"25s", p:25, c:"green"}, {n:"Munchie's", p:30, c:"green"}, {n:"7G's", p:40, c:"green"},
   {n:"7G's-$25", p:25, c:"green"}, {n:"topshelf", p:50, c:"green"}, {n:"60s", p:60, c:"green"},
@@ -629,31 +655,35 @@ function renderCategories(){
       empty.className = 'no-results';
       empty.textContent = `No items match "${searchTerm}"`;
       section.appendChild(empty);
-      wrap.appendChild(section);
-      return;
+    }else{
+      const colHead = document.createElement('div');
+      colHead.className = 'item-row head';
+      colHead.innerHTML = `<div>Item</div><div style="text-align:center">Had</div><div style="text-align:center">Gave</div><div style="text-align:center">Left</div><div style="text-align:center">Sold</div><div style="text-align:right">Sales</div>`;
+      section.appendChild(colHead);
+
+      items.forEach(it=>{
+        const row = document.createElement('div');
+        row.className = 'item-row' + (isTouched(it) ? ' touched':'');
+        const c = counts[it.n] || {had:'',gave:'',left:''};
+        const sold = calcSold(it);
+
+        row.innerHTML = `
+          <div class="item-name">${it.n}<span class="item-price">${fmt(it.p)}</span><span class="item-del" data-remove-item="${it.n}" title="Remove item">×</span></div>
+          <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="had" value="${c.had}">
+          <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="gave" value="${c.gave}">
+          <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="left" value="${c.left}">
+          <div class="sold-val num">${sold===null? '—' : sold}</div>
+          <div class="sales-val num">${sold? fmt(sold*it.p) : '—'}</div>
+        `;
+        section.appendChild(row);
+      });
     }
 
-    const colHead = document.createElement('div');
-    colHead.className = 'item-row head';
-    colHead.innerHTML = `<div>Item</div><div style="text-align:center">Had</div><div style="text-align:center">Gave</div><div style="text-align:center">Left</div><div style="text-align:center">Sold</div><div style="text-align:right">Sales</div>`;
-    section.appendChild(colHead);
-
-    items.forEach(it=>{
-      const row = document.createElement('div');
-      row.className = 'item-row' + (isTouched(it) ? ' touched':'');
-      const c = counts[it.n] || {had:'',gave:'',left:''};
-      const sold = calcSold(it);
-
-      row.innerHTML = `
-        <div class="item-name">${it.n}<span class="item-price">${fmt(it.p)}</span></div>
-        <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="had" value="${c.had}">
-        <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="gave" value="${c.gave}">
-        <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="left" value="${c.left}">
-        <div class="sold-val num">${sold===null? '—' : sold}</div>
-        <div class="sales-val num">${sold? fmt(sold*it.p) : '—'}</div>
-      `;
-      section.appendChild(row);
-    });
+    const addRow = document.createElement('button');
+    addRow.className = 'add-item-row';
+    addRow.dataset.addCategory = cat.key;
+    addRow.textContent = `+ Add ${cat.label.toLowerCase()} item`;
+    section.appendChild(addRow);
 
     wrap.appendChild(section);
   });
@@ -668,6 +698,20 @@ function renderCategories(){
       withFocusPreserved(()=>{ renderCategories(); renderTabs(); renderSummary(); }, 'categories');
       scheduleSave();
     });
+  });
+
+  wrap.querySelectorAll('[data-remove-item]').forEach(btn=>{
+    btn.addEventListener('click', async e=>{
+      e.stopPropagation();
+      const name = e.target.dataset.removeItem;
+      if (!confirm(`Remove "${name}" from the product list? Past sales history for it is kept, it just won't show on new sheets.`)) return;
+      await removeItem(name);
+      showToast(`Removed ${name}`);
+    });
+  });
+
+  wrap.querySelectorAll('[data-add-category]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openItemModal(btn.dataset.addCategory));
   });
 }
 
@@ -1230,6 +1274,93 @@ function subscribeToStoreChanges(){
     .subscribe();
 }
 
+// ===================== ITEM CATALOG (products / rows) =====================
+// The product list is shared across all stores, synced the same way the store
+// list is: local cache for offline use, cloud table as source of truth, and a
+// realtime subscription so a product added on one device shows up everywhere.
+let itemsChannel = null;
+
+function itemsToCloudRows(){
+  return ITEMS.map(it => ({ name: it.n, price: it.p, category: it.c, updated_at: new Date().toISOString() }));
+}
+
+async function saveItemsCatalog(){
+  try{ localStorage.setItem('items', JSON.stringify(ITEMS)); }catch(err){ console.error('could not cache items locally', err); }
+  if (!cloudEnabled) return;
+  try{
+    const { error } = await sb.from('ledger_items').upsert(itemsToCloudRows(), { onConflict: 'name' });
+    if (error) throw error;
+  }catch(err){ console.error('cloud item save failed', err); }
+}
+
+async function pullItemsFromCloud(){
+  if (!cloudEnabled) return false;
+  try{
+    const { data, error } = await sb.from('ledger_items').select('name,price,category').order('name');
+    if (error) throw error;
+    if (data && data.length){
+      ITEMS = data.map(r => ({ n: r.name, p: parseFloat(r.price), c: r.category }));
+      localStorage.setItem('items', JSON.stringify(ITEMS));
+      return true;
+    }
+  }catch(err){ console.error('cloud item fetch failed', err); }
+  return false;
+}
+
+// First-ever run: if the cloud table is empty, seed it with the built-in
+// default catalog so every device converges on the same starting list.
+async function seedCloudItemsIfEmpty(){
+  if (!cloudEnabled) return;
+  try{
+    const { data, error } = await sb.from('ledger_items').select('name').limit(1);
+    if (error) throw error;
+    if (!data || data.length === 0){
+      await sb.from('ledger_items').upsert(itemsToCloudRows(), { onConflict: 'name' });
+    }
+  }catch(err){ console.error('could not seed cloud items', err); }
+}
+
+function subscribeToItemChanges(){
+  if (!cloudEnabled) return;
+  if (itemsChannel) sb.removeChannel(itemsChannel);
+  itemsChannel = sb.channel('ledger_items_all')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ledger_items' }, async () => {
+      const changed = await pullItemsFromCloud();
+      if (changed){
+        renderTabs();
+        renderCategories();
+        renderSummary();
+      }
+    })
+    .subscribe();
+}
+
+function itemNameTaken(name){
+  return ITEMS.some(it => it.n.trim().toLowerCase() === name.trim().toLowerCase());
+}
+
+async function addItem(name, price, category){
+  ITEMS.push({ n: name, p: price, c: category });
+  await saveItemsCatalog();
+  renderTabs();
+  renderCategories();
+  renderSummary();
+}
+
+async function removeItem(name){
+  ITEMS = ITEMS.filter(it => it.n !== name);
+  try{ localStorage.setItem('items', JSON.stringify(ITEMS)); }catch(err){}
+  if (cloudEnabled){
+    try{
+      const { error } = await sb.from('ledger_items').delete().eq('name', name);
+      if (error) throw error;
+    }catch(err){ console.error('cloud item delete failed', err); }
+  }
+  renderTabs();
+  renderCategories();
+  renderSummary();
+}
+
 async function preloadSavedDates(){
   const dayMap = await fetchAllDaysForStore();
   savedDatesSet = new Set(Object.keys(dayMap));
@@ -1271,6 +1402,47 @@ document.getElementById('storeModalAdd').addEventListener('click', async ()=>{
 });
 document.getElementById('newStoreInput').addEventListener('keydown', e=>{
   if (e.key === 'Enter') document.getElementById('storeModalAdd').click();
+});
+
+let pendingItemCategory = null;
+
+function openItemModal(categoryKey){
+  pendingItemCategory = categoryKey;
+  const cat = CATS.find(c => c.key === categoryKey);
+  document.getElementById('itemModalTitle').textContent = 'New ' + (cat ? cat.label.toLowerCase() : '') + ' item';
+  document.getElementById('newItemName').value = '';
+  document.getElementById('newItemPrice').value = '';
+  document.getElementById('itemModal').classList.add('show');
+  setTimeout(()=> document.getElementById('newItemName').focus(), 50);
+}
+
+document.getElementById('itemModalCancel').addEventListener('click', ()=>{
+  document.getElementById('itemModal').classList.remove('show');
+});
+
+document.getElementById('itemModalAdd').addEventListener('click', async ()=>{
+  const name = document.getElementById('newItemName').value.trim();
+  const priceStr = sanitizeAmount(document.getElementById('newItemPrice').value);
+  const price = parseFloat(priceStr);
+
+  if (!name){ showToast('Enter an item name'); return; }
+  if (itemNameTaken(name)){ showToast('An item with that name already exists'); return; }
+  if (!priceStr || isNaN(price) || price <= 0){ showToast('Enter a valid price'); return; }
+
+  document.getElementById('itemModal').classList.remove('show');
+  await addItem(name, price, pendingItemCategory);
+  showToast('Added ' + name);
+});
+
+document.getElementById('newItemPrice').addEventListener('input', e=>{
+  const clean = sanitizeAmount(e.target.value);
+  if (clean !== e.target.value) e.target.value = clean;
+});
+
+['newItemName','newItemPrice'].forEach(id=>{
+  document.getElementById(id).addEventListener('keydown', e=>{
+    if (e.key === 'Enter') document.getElementById('itemModalAdd').click();
+  });
 });
 
 // migrate data saved before multi-store support existed (bare 'day:YYYY-MM-DD' keys)
@@ -1317,9 +1489,17 @@ async function init(){
     if (savedStores) stores = JSON.parse(savedStores);
   }catch(err){ /* no stores saved yet */ }
 
+  try{
+    const savedItems = localStorage.getItem('items');
+    if (savedItems) ITEMS = JSON.parse(savedItems);
+  }catch(err){ /* no item cache yet, default catalog stays in place */ }
+
   if (cloudEnabled){
     await pullStoresFromCloud();
     subscribeToStoreChanges();
+    await seedCloudItemsIfEmpty();
+    await pullItemsFromCloud();
+    subscribeToItemChanges();
   }
 
   if (!stores || stores.length === 0){
