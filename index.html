@@ -15,6 +15,7 @@
 <title>Ledger</title>
 <link rel="preconnect" href="https://cdnjs.cloudflare.com">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   @import url('https://cdnjs.cloudflare.com/ajax/libs/jetbrains-mono/2.304/jetbrains-mono.css');
 
@@ -130,6 +131,27 @@
   }
   .search-wrap input:focus{ outline:2px solid var(--accent); outline-offset:0;}
   .search-icon{ position:absolute; left:11px; top:50%; transform:translateY(-50%); opacity:.4; font-size:14px;}
+  .edit-prices-link{
+    display:block; margin:-4px 0 12px; background:none; border:none; color:var(--muted);
+    font-size:12px; font-weight:700; font-family:var(--sans); cursor:pointer; padding:0;
+  }
+  .edit-prices-link:hover{ color:var(--accent); }
+  .price-edit-modal .share-card{ max-width:480px; max-height:80vh; display:flex; flex-direction:column; }
+  .price-edit-list{ overflow-y:auto; margin:4px 0 10px; padding-right:2px; }
+  .price-edit-cat{
+    font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    padding:10px 2px 4px; position:sticky; top:0; background:var(--panel);
+  }
+  .price-edit-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:6px 2px; border-top:1px solid var(--line-soft);
+  }
+  .price-edit-row .name{ font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .price-edit-row input{
+    width:90px; flex:none; border:1px solid var(--line); border-radius:7px; padding:6px 8px;
+    text-align:right; font-size:13px; font-family:var(--mono); background:#fbf8f1;
+  }
+  .price-edit-row input:focus{ outline:2px solid var(--accent); outline-offset:0; background:#fff; }
 
   .tabs{
     display:flex; gap:6px; margin-bottom:12px; overflow-x:auto; padding-bottom:2px;
@@ -142,6 +164,8 @@
   .tab .dot{ width:7px; height:7px; border-radius:2px; display:inline-block;}
   .tab.active{ background:var(--ink); color:#f4ede0; border-color:var(--ink);}
   .tab .tab-amt{ font-family:var(--mono); opacity:.75; font-size:11px;}
+  .tab.tab-add{ border-style:dashed; color:var(--muted); }
+  .tab.tab-add:hover{ border-color:var(--accent); color:var(--accent); }
 
   .cat-section{ margin-bottom:16px; border-radius:14px; overflow:hidden; border:1px solid var(--line); background:var(--panel);}
   .cat-head{
@@ -149,10 +173,9 @@
     display:flex; justify-content:space-between; align-items:center;
   }
   .cat-head .tot{ font-size:13.5px; font-weight:700; font-family:var(--mono);}
-  .cat-green .cat-head{ background:var(--green); color:#eafff9;}
-  .cat-tobacco .cat-head{ background:var(--tobacco); color:#fff2ef;}
-  .cat-grabba .cat-head{ background:var(--grabba); color:var(--grabba-deep);}
-  .cat-vapes .cat-head{ background:var(--vapes); color:#fdf0f9;}
+  /* Per-category background/text color is now applied inline (via cat.hex +
+     contrastText()) since categories are user-extensible and can't all have
+     a CSS class baked in ahead of time. */
 
   .item-row{
     display:grid;
@@ -160,13 +183,22 @@
     gap:5px;
     align-items:center;
     padding:8px 12px;
-    border-top:1px solid var(--line-soft);
+    border-top:1px solid var(--line);
     font-size:13px;
   }
   .item-row.head{
     font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700;
     border-top:none; padding-bottom:5px; padding-top:10px;
   }
+  /* Column divider lines. Uses box-shadow rather than border-left so it doesn't
+     collide with the <input> cells' own `border` shorthand (which would otherwise
+     win on specificity and silently erase a border-left rule here). */
+  .item-row > *{ position:relative; }
+  .item-row > *:not(:first-child)::before{
+    content:''; position:absolute; left:-5.5px; top:-9px; bottom:-9px; width:1px;
+    background:var(--line);
+  }
+  .item-row.head > *:not(:first-child)::before{ top:-10px; bottom:-6px; }
   .item-row.touched{ background:#faf6ea;}
   .item-name{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .item-price{ font-size:10.5px; color:var(--muted); font-weight:500; display:block; font-family:var(--mono);}
@@ -174,6 +206,7 @@
     width:100%; border:1px solid var(--line); border-radius:7px; padding:7px 2px;
     text-align:center; font-size:13px; font-family:var(--mono); background:#fbf8f1;
   }
+  .item-row .cell{ display:block; min-width:0; }
   .item-row input:focus{ outline:2px solid var(--accent); outline-offset:1px; background:#fff;}
   .sold-val{ text-align:center; font-weight:700; color:var(--ink); font-family:var(--mono);}
   .sales-val{ text-align:right; font-weight:800; color:var(--good); font-family:var(--mono);}
@@ -284,6 +317,10 @@
     font-family:var(--sans); background:#fbf8f1;
   }
   .store-name-input:focus{ outline:2px solid var(--accent); outline-offset:0;}
+  .color-swatch{
+    width:32px; height:32px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0;
+  }
+  .color-swatch.selected{ border-color:var(--ink); box-shadow:0 0 0 2px var(--panel), 0 0 0 3px var(--ink); }
   ::-webkit-scrollbar{ height:0; width:0;}
 </style>
 </head>
@@ -324,6 +361,7 @@
       <span class="search-icon">⌕</span>
       <input type="text" id="searchInput" placeholder="Search items…">
     </div>
+    <button class="edit-prices-link" id="editPricesBtn">✎ Edit prices</button>
     <div class="tabs" id="tabs"></div>
     <div id="categories"></div>
     <div class="summary" id="summary"></div>
@@ -388,13 +426,41 @@
   </div>
 </div>
 
+<div class="share-modal" id="categoryModal">
+  <div class="share-card">
+    <div class="share-title">New category</div>
+    <input type="text" id="newCategoryName" placeholder="Category name" class="store-name-input" style="width:100%; margin-bottom:10px;">
+    <div style="font-size:11.5px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px;">Color</div>
+    <div id="categoryColorSwatches" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <input type="color" id="newCategoryCustomColor" value="#3c8f7d" style="width:40px; height:34px; border:1px solid var(--line); border-radius:8px; padding:2px; background:none; cursor:pointer;">
+      <span style="font-size:12px; color:var(--muted);">or pick a custom color</span>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:14px;">
+      <button class="add-btn" id="categoryModalCancel" style="flex:1;">Cancel</button>
+      <button class="add-btn" id="categoryModalAdd" style="flex:1; border-color:var(--accent); color:var(--accent); border-style:solid;">Add category</button>
+    </div>
+  </div>
+</div>
+
+<div class="share-modal price-edit-modal" id="priceEditModal">
+  <div class="share-card">
+    <div class="share-title">Edit prices</div>
+    <div class="price-edit-list" id="priceEditList"></div>
+    <div style="display:flex; gap:8px;">
+      <button class="add-btn" id="priceEditCancel" style="flex:1;">Cancel</button>
+      <button class="add-btn" id="priceEditSave" style="flex:1; border-color:var(--accent); color:var(--accent); border-style:solid;">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ===================== CLOUD SYNC CONFIG =====================
 // 1. Create a free project at https://supabase.com
 // 2. Run the SQL from setup.sql (included alongside this file) in the SQL Editor
 // 3. Paste your Project URL and anon public API key below (Settings > API)
-const SUPABASE_URL = 'https://octzrkfaozkmwkqyaalb.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_7QKiTxoIf3HPppoDi8lHXQ_WYscXmKQ';
+const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 const cloudEnabled = SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
 const sb = cloudEnabled ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -462,12 +528,33 @@ function withFocusPreserved(renderFn, containerId){
 
 // ===================== END CLOUD SYNC CONFIG =====================
 
-const CATS = [
-  {key:'green', label:'Green', color:'green', var:'--green'},
-  {key:'tobacco', label:'Tobacco', color:'tobacco', var:'--tobacco'},
-  {key:'grabba', label:'Grabba', color:'grabba', var:'--grabba'},
-  {key:'vapes', label:'Vapes', color:'vapes', var:'--vapes'},
+// Categories are now a mutable, syncable list (see addCategory / cloud sync
+// functions further down) rather than a fixed set of four. Each has a "hex"
+// (used everywhere in-app: tabs, section headers, Copy) and a "brightHex"
+// (used only in the spreadsheet-style Send image, to match the vivid palette
+// of the original spreadsheet this app replaced). For categories the user
+// adds themselves there's no legacy spreadsheet color to match, so both
+// fields are simply set to the one color they pick.
+let CATS = [
+  {key:'green', label:'Green', hex:'#3c8f7d', brightHex:'#2FE0D0'},
+  {key:'tobacco', label:'Tobacco', hex:'#b23a2f', brightHex:'#FF3B30'},
+  {key:'grabba', label:'Grabba', hex:'#c99a1f', brightHex:'#FFF200'},
+  {key:'vapes', label:'Vapes', hex:'#a63d84', brightHex:'#FF00FF'},
 ];
+
+// Picks readable black or white text for a given hex background, so a
+// user-chosen category color (which could be light or dark) never ends up
+// with illegible text on top of it.
+function contrastText(hex){
+  const h = hex.replace('#','');
+  const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+  const luminance = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return luminance > 0.6 ? '#171310' : '#ffffff';
+}
+
+function catByKey(key){ return CATS.find(c => c.key === key); }
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // Default product catalog (seed data). This becomes mutable once loaded, since
 // items can be added/removed at runtime and synced to the cloud — see
@@ -532,6 +619,13 @@ function slugify(name){
   let id = s, n = 2;
   while (stores.some(st => st.id === id)){ id = s + '-' + n; n++; }
   return id;
+}
+function slugifyCategoryKey(name){
+  let s = name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  if (!s) s = 'category';
+  let key = s, n = 2;
+  while (CATS.some(c => c.key === key)){ key = s + '-' + n; n++; }
+  return key;
 }
 function storeName(id){
   const st = stores.find(s => s.id === id);
@@ -626,10 +720,17 @@ function renderTabs(){
     const b = document.createElement('button');
     b.className = 'tab' + (activeTab===cat.key ? ' active':'');
     const amt = categoryTotal(cat.key);
-    b.innerHTML = `<span class="dot" style="background:var(${cat.var})"></span>${cat.label}${amt? `<span class="tab-amt">${fmt(amt)}</span>`:''}`;
+    b.innerHTML = `<span class="dot" style="background:${cat.hex}"></span>${cat.label}${amt? `<span class="tab-amt">${fmt(amt)}</span>`:''}`;
     b.onclick = () => { activeTab = cat.key; renderTabs(); renderCategories(); };
     tabs.appendChild(b);
   });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tab tab-add';
+  addBtn.textContent = '+ Category';
+  addBtn.id = 'addCategoryBtn';
+  addBtn.addEventListener('click', openCategoryModal);
+  tabs.appendChild(addBtn);
 }
 
 function renderCategories(){
@@ -643,10 +744,12 @@ function renderCategories(){
     if (term) items = items.filter(i=> i.n.toLowerCase().includes(term));
 
     const section = document.createElement('div');
-    section.className = 'cat-section cat-' + cat.color;
+    section.className = 'cat-section';
 
     const head = document.createElement('div');
     head.className = 'cat-head';
+    head.style.background = cat.hex;
+    head.style.color = contrastText(cat.hex);
     head.innerHTML = `<span>${cat.label}</span><span class="tot num">${fmt(categoryTotal(cat.key))}</span>`;
     section.appendChild(head);
 
@@ -669,9 +772,9 @@ function renderCategories(){
 
         row.innerHTML = `
           <div class="item-name">${it.n}<span class="item-price">${fmt(it.p)}</span><span class="item-del" data-remove-item="${it.n}" title="Remove item">×</span></div>
-          <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="had" value="${c.had}">
-          <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="gave" value="${c.gave}">
-          <input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="left" value="${c.left}">
+          <div class="cell"><input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="had" value="${c.had}"></div>
+          <div class="cell"><input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="gave" value="${c.gave}"></div>
+          <div class="cell"><input type="text" inputmode="decimal" autocomplete="off" data-item="${it.n}" data-field="left" value="${c.left}"></div>
           <div class="sold-val num">${sold===null? '—' : sold}</div>
           <div class="sales-val num">${sold? fmt(sold*it.p) : '—'}</div>
         `;
@@ -717,14 +820,16 @@ function renderCategories(){
 
 function renderSummary(){
   const el = document.getElementById('summary');
-  const green = categoryTotal('green');
-  const tobacco = categoryTotal('tobacco');
-  const grabba = categoryTotal('grabba');
-  const vapes = categoryTotal('vapes');
-  const expected = green + tobacco + grabba + vapes;
+  const catTotals = {};
+  CATS.forEach(cat => { catTotals[cat.key] = categoryTotal(cat.key); });
+  const expected = Object.values(catTotals).reduce((a,b) => a+b, 0);
   const missing = cashCollected - expected;
   const missingClass = missing < 0 ? 'bad' : 'good';
   const missingLabel = missing < 0 ? 'Missing' : (missing > 0 ? 'Over' : 'Even');
+
+  const catRows = CATS.map(cat => `
+    <div class="srow"><span><span class="swatch" style="background:${cat.hex}"></span>${esc(cat.label)} total sales</span><span class="num">${fmt(catTotals[cat.key])}</span></div>
+  `).join('');
 
   el.innerHTML = `
     <h2>Totals · Cash &amp; Card Check
@@ -733,10 +838,7 @@ function renderSummary(){
         <button class="copy-btn send-btn" id="sendBtn">Send ↗</button>
       </span>
     </h2>
-    <div class="srow"><span><span class="swatch" style="background:var(--green)"></span>Green total sales</span><span class="num">${fmt(green)}</span></div>
-    <div class="srow"><span><span class="swatch" style="background:var(--tobacco)"></span>Tobacco total sales</span><span class="num">${fmt(tobacco)}</span></div>
-    <div class="srow"><span><span class="swatch" style="background:var(--grabba)"></span>Grabba total sales</span><span class="num">${fmt(grabba)}</span></div>
-    <div class="srow"><span><span class="swatch" style="background:var(--vapes)"></span>Vapes total sales</span><span class="num">${fmt(vapes)}</span></div>
+    ${catRows}
     <div class="srow"><span>Total inventory value (on hand)</span><span class="num">${fmt(totalInventoryValue())}</span></div>
     <div class="srow"><span>Total items sold</span><span class="num">${totalItemsSold()}</span></div>
     <div class="srow total"><span>Expected revenue</span><span class="num">${fmt(expected)}</span></div>
@@ -756,17 +858,53 @@ function renderSummary(){
     scheduleSave();
   });
 
+  const GOOD_HEX = '#2f8f5b';
+  const BAD_HEX = '#b3401f';
+
   function buildSummaryText(){
     const lines = [
       `${currentDate}${activeStore? ' — '+storeName(activeStore) : ''}`,
-      `Green: ${fmt(green)}`,
-      `Tobacco: ${fmt(tobacco)}`,
-      `Grabba: ${fmt(grabba)}`,
-      `Vapes: ${fmt(vapes)}`,
-      `Expected: ${fmt(expected)}`,
-      `Collected: ${fmt(cashCollected)}`,
-      `${missingLabel}: ${fmt(Math.abs(missing))}`,
     ];
+
+    // Fixed-width columns (relies on a monospace font to actually line up —
+    // true column alignment isn't possible in plain text with a variable-width
+    // font, but this renders correctly in Notes, code blocks, Slack, etc.).
+    const pad = (s, w) => String(s).padEnd(w, ' ');
+    const padR = (s, w) => String(s).padStart(w, ' ');
+
+    CATS.forEach(cat=>{
+      const catItems = ITEMS.filter(it => it.c === cat.key && isTouched(it));
+      if (catItems.length === 0) return;
+      const tableWidth = 16+1+4+1+4+1+4+1+4+1+9;
+      lines.push('');
+      lines.push(cat.label.toUpperCase());
+      lines.push(`${pad('Item',16)} ${padR('Had',4)} ${padR('Gave',4)} ${padR('Left',4)} ${padR('Sold',4)} ${padR('Sales',9)}`);
+      lines.push('-'.repeat(tableWidth));
+      catItems.forEach((it, idx)=>{
+        const c = counts[it.n] || {had:'',gave:'',left:''};
+        const sold = calcSold(it);
+        const soldStr = sold === null ? '—' : String(sold);
+        const salesStr = sold ? fmt(sold * it.p) : fmt(0);
+        const name = it.n.length > 16 ? it.n.slice(0,15)+'…' : it.n;
+        lines.push(`${pad(name,16)} ${padR(c.had||0,4)} ${padR(c.gave||0,4)} ${padR(c.left||0,4)} ${padR(soldStr,4)} ${padR(salesStr,9)}`);
+        // Row divider between every item, not just once under the header — so
+        // Had/Gave/Left/Sold/Sales stay visually separated line by line.
+        if (idx < catItems.length - 1) lines.push('-'.repeat(tableWidth));
+      });
+      lines.push('-'.repeat(tableWidth));
+    });
+
+    lines.push('');
+    lines.push('TOTALS');
+    const totalsLabelW = 18;
+    const totalsValW = 10;
+    const totalRow = (label, value) => lines.push(`${pad(label, totalsLabelW)} ${padR(value, totalsValW)}`);
+    lines.push('-'.repeat(totalsLabelW + 1 + totalsValW));
+    CATS.forEach(cat => totalRow(cat.label, fmt(catTotals[cat.key])));
+    totalRow('Expected', fmt(expected));
+    totalRow('Collected', fmt(cashCollected));
+    totalRow(missingLabel, fmt(Math.abs(missing)));
+
     if (shiftsData.length){
       lines.push('');
       lines.push('Payroll: ' + fmt(totalPayroll()));
@@ -774,26 +912,371 @@ function renderSummary(){
     return lines.join('\n');
   }
 
+  // Real HTML <table> version — pastes as an actual grid (real column/row
+  // borders) into apps that support rich text: Gmail, Google Docs, Notes,
+  // Sheets/Excel, Slack. Plain-text destinations (SMS, most share-sheet
+  // targets) can't render a table at all regardless of what's produced here —
+  // see buildSummaryText above for that fallback.
+
+  function buildSummaryHTML(){
+    const cellStyle = 'border:1px solid #ccc; padding:4px 8px; font-family:sans-serif; font-size:13px;';
+    const parts = [`<div style="font-family:sans-serif; font-size:14px; color:#171310;">`];
+    parts.push(`<div style="font-weight:700; margin-bottom:10px;">${esc(currentDate)}${activeStore? ' — '+esc(storeName(activeStore)) : ''}</div>`);
+
+    CATS.forEach(cat=>{
+      const catItems = ITEMS.filter(it => it.c === cat.key && isTouched(it));
+      if (catItems.length === 0) return;
+      const hex = cat.hex;
+      parts.push(`<div style="font-weight:800; color:${hex}; margin:14px 0 4px; text-transform:uppercase; font-size:12px; letter-spacing:.04em;">${esc(cat.label)}</div>`);
+      parts.push(`<table style="border-collapse:collapse; width:100%; margin-bottom:4px;">`);
+      parts.push(`<tr style="background:${hex}; color:${contrastText(hex)};">
+        <th style="${cellStyle} text-align:left;">Item</th>
+        <th style="${cellStyle} text-align:center;">Had</th>
+        <th style="${cellStyle} text-align:center;">Gave</th>
+        <th style="${cellStyle} text-align:center;">Left</th>
+        <th style="${cellStyle} text-align:center;">Sold</th>
+        <th style="${cellStyle} text-align:right;">Sales</th>
+      </tr>`);
+      catItems.forEach(it=>{
+        const c = counts[it.n] || {had:'',gave:'',left:''};
+        const sold = calcSold(it);
+        const soldStr = sold === null ? '—' : String(sold);
+        const salesStr = sold ? fmt(sold * it.p) : fmt(0);
+        parts.push(`<tr>
+          <td style="${cellStyle} font-weight:600;">${esc(it.n)}</td>
+          <td style="${cellStyle} text-align:center;">${esc(c.had||0)}</td>
+          <td style="${cellStyle} text-align:center;">${esc(c.gave||0)}</td>
+          <td style="${cellStyle} text-align:center;">${esc(c.left||0)}</td>
+          <td style="${cellStyle} text-align:center;">${soldStr}</td>
+          <td style="${cellStyle} text-align:right; font-weight:700;">${salesStr}</td>
+        </tr>`);
+      });
+      parts.push(`</table>`);
+    });
+
+    parts.push(`<table style="border-collapse:collapse; width:100%; margin-top:10px;">`);
+    CATS.forEach(cat=>{
+      parts.push(`<tr><td style="${cellStyle} font-weight:700; color:${cat.hex};">${esc(cat.label)}</td><td style="${cellStyle} text-align:right;">${fmt(catTotals[cat.key])}</td></tr>`);
+    });
+    parts.push(`<tr><td style="${cellStyle} font-weight:700;">Expected</td><td style="${cellStyle} text-align:right; font-weight:700;">${fmt(expected)}</td></tr>`);
+    parts.push(`<tr><td style="${cellStyle}">Collected</td><td style="${cellStyle} text-align:right;">${fmt(cashCollected)}</td></tr>`);
+    const missColor = missing < 0 ? BAD_HEX : GOOD_HEX;
+    parts.push(`<tr><td style="${cellStyle} font-weight:700; color:${missColor};">${esc(missingLabel)}</td><td style="${cellStyle} text-align:right; font-weight:700; color:${missColor};">${fmt(Math.abs(missing))}</td></tr>`);
+    parts.push(`</table>`);
+
+    if (shiftsData.length){
+      parts.push(`<div style="margin-top:10px; font-weight:700;">Payroll: ${fmt(totalPayroll())}</div>`);
+    }
+    parts.push(`</div>`);
+    return parts.join('');
+  }
+
+  // Renders the same colored summary as an actual PNG image (via <canvas>) so
+  // it can be shared as a file. Sharing an image through the native share sheet
+  // is what gives the "Save Image" / "Save to Photos" option on iOS and Android —
+  // sharing plain text never does, regardless of the app.
+  function buildSummaryRows(){
+    const rows = [{ type:'title', text: `${currentDate}${activeStore? ' — '+storeName(activeStore) : ''}` }];
+
+    CATS.forEach(cat=>{
+      const catItems = ITEMS.filter(it => it.c === cat.key && isTouched(it));
+      if (catItems.length === 0) return;
+      rows.push({ type:'catHeader', text: cat.label.toUpperCase(), color: cat.hex });
+      catItems.forEach(it=>{
+        const c = counts[it.n] || {had:'',gave:'',left:''};
+        const sold = calcSold(it);
+        const soldStr = sold === null ? '—' : sold;
+        const salesStr = sold ? fmt(sold * it.p) : fmt(0);
+        rows.push({
+          type:'item', color: cat.hex, name: it.n,
+          detail: `had ${c.had||0}, gave ${c.gave||0}, left ${c.left||0}, sold ${soldStr}`,
+          amount: salesStr,
+        });
+      });
+    });
+
+    rows.push({ type:'divider' });
+    CATS.forEach(cat=>{
+      rows.push({ type:'total', label:cat.label, value: fmt(catTotals[cat.key]), color: cat.hex });
+    });
+    rows.push({ type:'totalBold', label:'Expected', value: fmt(expected) });
+    rows.push({ type:'total', label:'Collected', value: fmt(cashCollected) });
+    rows.push({ type:'totalBold', label: missingLabel, value: fmt(Math.abs(missing)), color: missing < 0 ? BAD_HEX : GOOD_HEX });
+
+    if (shiftsData.length){
+      rows.push({ type:'divider' });
+      rows.push({ type:'totalBold', label:'Payroll', value: fmt(totalPayroll()) });
+    }
+    return rows;
+  }
+
+  function rowHeight(r){
+    switch(r.type){
+      case 'title': return 46;
+      case 'catHeader': return 32;
+      case 'item': return 34;
+      case 'divider': return 20;
+      case 'total': return 26;
+      case 'totalBold': return 30;
+      default: return 24;
+    }
+  }
+
+  function buildSummaryCanvas(){
+    const rows = buildSummaryRows();
+    const width = 640;
+    const topPad = 28, bottomPad = 28, padX = 28;
+    const height = topPad + rows.reduce((sum, r) => sum + rowHeight(r), 0) + bottomPad;
+
+    const scale = 2; // draw at 2x for a crisp saved image
+    const canvas = document.createElement('canvas');
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = '#f3ede2';
+    ctx.fillRect(0, 0, width, height);
+    ctx.textBaseline = 'top';
+
+    let cy = topPad;
+    rows.forEach(r=>{
+      const h = rowHeight(r);
+      if (r.type === 'title'){
+        ctx.fillStyle = '#171310';
+        ctx.font = '700 18px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(r.text, padX, cy + 4);
+      }else if (r.type === 'catHeader'){
+        ctx.fillStyle = r.color;
+        ctx.font = '800 13px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(r.text, padX, cy + 8);
+      }else if (r.type === 'item'){
+        ctx.fillStyle = r.color;
+        ctx.font = '700 13px "JetBrains Mono", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(r.name, padX, cy);
+        ctx.fillStyle = '#171310';
+        ctx.font = '400 11.5px "JetBrains Mono", monospace';
+        ctx.fillText(r.detail, padX, cy + 16);
+        ctx.fillStyle = '#171310';
+        ctx.font = '700 13px "JetBrains Mono", monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(r.amount, width - padX, cy);
+      }else if (r.type === 'divider'){
+        ctx.strokeStyle = '#e4dbc8';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padX, cy + 9);
+        ctx.lineTo(width - padX, cy + 9);
+        ctx.stroke();
+      }else if (r.type === 'total' || r.type === 'totalBold'){
+        ctx.fillStyle = r.color || '#171310';
+        ctx.font = (r.type === 'totalBold' ? '700 14px' : '600 13px') + ' -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(r.label, padX, cy);
+        ctx.textAlign = 'right';
+        ctx.fillText(r.value, width - padX, cy);
+      }
+      cy += h;
+    });
+
+    return canvas;
+  }
+
+  function canvasToBlob(canvas){
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }
+
+  // Builds the whole sheet as one continuous spreadsheet-style table — every
+  // product as its own row with a solid category-colored background (not just
+  // the touched ones), followed by a totals block and a shift-tracking block —
+  // matching the original spreadsheet layout this app replaced. Uses each
+  // category's brightHex (vivid, matching the original spreadsheet's palette
+  // for the four built-in categories; equal to hex for any category the user
+  // adds themselves, since there's no legacy color to match there).
+  function buildSpreadsheetCapture(){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#111; background:#fff; width:900px;';
+
+    const topBar = document.createElement('div');
+    topBar.style.cssText = 'background:#1B2432; height:16px;';
+    wrap.appendChild(topBar);
+
+    const dateRow = document.createElement('table');
+    dateRow.style.cssText = 'border-collapse:collapse; width:100%; margin:6px 0;';
+    dateRow.innerHTML = `<tr>
+      <td style="padding:4px 10px; font-weight:700; width:120px;">Date</td>
+      <td style="padding:4px 10px;">${currentDate}${activeStore ? ' (' + storeName(activeStore) + ')' : ''}</td>
+    </tr>`;
+    wrap.appendChild(dateRow);
+
+    const table = document.createElement('table');
+    table.style.cssText = 'border-collapse:collapse; width:100%; table-layout:fixed;';
+    const cols   = ['ITEM','Unit Price','Had','Gave','Left','Sold','Sales','Category'];
+    const widths = ['24%','12%','8%','8%','8%','8%','12%','20%'];
+    const aligns = ['left','right','center','center','center','center','right','left'];
+
+    let html = '<colgroup>' + widths.map(w => `<col style="width:${w}">`).join('') + '</colgroup>';
+    html += '<tr>' + cols.map((c,i) =>
+      `<th style="background:#2554E0; color:#fff; font-weight:700; padding:6px 8px; border:1px solid #999; text-align:${aligns[i]};">${c}</th>`
+    ).join('') + '</tr>';
+
+    ITEMS.forEach(it=>{
+      const itCat = catByKey(it.c);
+      const bg = itCat ? itCat.brightHex : '#eee';
+      const c = counts[it.n] || {had:'',gave:'',left:''};
+      const sold = calcSold(it);
+      const soldStr = sold === null ? '' : String(sold);
+      const salesStr = sold === null ? '' : fmt(sold * it.p);
+      const catLabel = itCat ? itCat.label : it.c;
+      html += `<tr>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999;">${esc(it.n)}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:right;">${fmt(it.p)}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${esc(c.had||'')}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${esc(c.gave||'')}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${esc(c.left||'')}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:center;">${soldStr}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999; text-align:right;">${salesStr}</td>
+        <td style="background:${bg}; padding:5px 8px; border:1px solid #999;">${esc(catLabel)}</td>
+      </tr>`;
+    });
+    table.innerHTML = html;
+    wrap.appendChild(table);
+
+    const spacer1 = document.createElement('div'); spacer1.style.height = '16px'; wrap.appendChild(spacer1);
+
+    const totalsHeader = document.createElement('div');
+    totalsHeader.style.cssText = 'background:#1B2432; color:#fff; font-weight:700; text-align:center; padding:6px; border:1px solid #999;';
+    totalsHeader.textContent = 'TOTALS / CASH & CARD CHECK';
+    wrap.appendChild(totalsHeader);
+
+    const isNeg = missing < 0;
+    const totalRows = [
+      ...CATS.map(cat => ({ label: cat.label.toUpperCase() + ' TOTAL SALES', value: fmt(catTotals[cat.key]), bg: cat.brightHex })),
+      { label:'TOTAL INVENTORY VALUE', value: fmt(totalInventoryValue()), bg:'#e6e6e6' },
+      { label:'TOTAL ITEMS SOLD',      value: String(totalItemsSold()),   bg:'#e6e6e6' },
+      { label:'EXPECTED REVENUE',      value: fmt(expected),              bg:'#e6e6e6' },
+      { label:'CASH/CARD COLLECTED',   value: fmt(cashCollected),         bg:'#e6e6e6' },
+      { label:'MISSING / OVER',        value: (isNeg?'-':'') + fmt(Math.abs(missing)), bg: isNeg ? '#f8b4b4' : '#c8f0c8' },
+    ];
+    const totalsTable = document.createElement('table');
+    totalsTable.style.cssText = 'border-collapse:collapse; width:100%;';
+    totalsTable.innerHTML = totalRows.map(r => `<tr>
+      <td style="background:${r.bg}; font-weight:700; padding:5px 8px; border:1px solid #999; width:60%;">${r.label}</td>
+      <td style="padding:5px 8px; border:1px solid #999; text-align:right; color:${r.label==='MISSING / OVER' && isNeg ? '#b3401f' : '#111'};">${r.value}</td>
+    </tr>`).join('');
+    wrap.appendChild(totalsTable);
+
+    if (shiftsData.length){
+      const spacer2 = document.createElement('div'); spacer2.style.height = '16px'; wrap.appendChild(spacer2);
+
+      const shiftHeader = document.createElement('div');
+      shiftHeader.style.cssText = 'background:#4A5568; color:#fff; font-weight:700; text-align:center; padding:6px; border:1px solid #999;';
+      shiftHeader.textContent = 'EMPLOYEE / SHIFT TRACKING';
+      wrap.appendChild(shiftHeader);
+
+      const shiftCols = ['Store','Employee','Date','Start','End','Hours','Pay','Notes'];
+      let shtml = '<tr>' + shiftCols.map(c => `<th style="background:#697489; color:#fff; padding:5px 8px; border:1px solid #999;">${c}</th>`).join('') + '</tr>';
+      shiftsData.forEach(s=>{
+        const hrs = hoursBetween(s.start, s.end);
+        shtml += `<tr>
+          <td style="padding:5px 8px; border:1px solid #999;">${esc(activeStore ? storeName(activeStore) : '')}</td>
+          <td style="padding:5px 8px; border:1px solid #999;">${esc(s.employee||'')}</td>
+          <td style="padding:5px 8px; border:1px solid #999;">${currentDate}</td>
+          <td style="padding:5px 8px; border:1px solid #999;">${esc(s.start||'')}</td>
+          <td style="padding:5px 8px; border:1px solid #999;">${esc(s.end||'')}</td>
+          <td style="padding:5px 8px; border:1px solid #999; text-align:center;">${hrs===null? '' : hrs}</td>
+          <td style="padding:5px 8px; border:1px solid #999; text-align:right;">${s.pay ? fmt(parseFloat(s.pay)) : ''}</td>
+          <td style="padding:5px 8px; border:1px solid #999;">${esc(s.notes||'')}</td>
+        </tr>`;
+      });
+      const shiftTable = document.createElement('table');
+      shiftTable.style.cssText = 'border-collapse:collapse; width:100%;';
+      shiftTable.innerHTML = shtml;
+      wrap.appendChild(shiftTable);
+    }
+
+    return wrap;
+  }
+
+  // Renders the full spreadsheet-style sheet off-screen, then rasterizes it
+  // with html2canvas — so the shared image looks like the original spreadsheet
+  // this app replaced, not the app's own mobile card layout.
+  async function captureFullSheetImage(){
+    if (typeof html2canvas === 'undefined') return null; // library failed to load (e.g. offline first run)
+
+    const root = buildSpreadsheetCapture();
+    root.style.position = 'fixed';
+    root.style.left = '-9999px';
+    root.style.top = '0';
+    document.body.appendChild(root);
+    try{
+      await new Promise(r => setTimeout(r, 30)); // let layout/fonts settle before capture
+      const canvas = await html2canvas(root, { backgroundColor: '#f3ede2', scale: 2 });
+      return canvas;
+    }catch(err){
+      console.error('full-sheet capture failed', err);
+      return null;
+    }finally{
+      root.remove();
+    }
+  }
+
   document.getElementById('copyBtn').addEventListener('click', ()=>{
-    copyText(buildSummaryText())
-      .then(ok => showToast(ok ? 'Summary copied' : 'Could not copy — see box below'))
-      .then(()=> { /* no-op */ });
+    copyRichText(buildSummaryText(), buildSummaryHTML())
+      .then(ok => showToast(ok ? 'Summary copied (with colors — paste into Gmail, Notes, Docs, etc.)' : 'Could not copy — see box below'));
   });
 
   document.getElementById('sendBtn').addEventListener('click', async ()=>{
-    const text = buildSummaryText();
     const title = `Shift Sheet — ${currentDate}`;
+    const filename = `shift-sheet-${currentDate}.png`;
 
+    let blob = null;
+    try{
+      const canvas = (await captureFullSheetImage()) || buildSummaryCanvas();
+      blob = await canvasToBlob(canvas);
+    }catch(err){ console.error('image generation failed', err); }
+
+    if (blob){
+      const file = new File([blob], filename, { type: 'image/png' });
+
+      // Sharing a file (not just text) is what makes "Save Image" / "Save to
+      // Photos" show up in the share sheet, and it's also what carries color.
+      if (navigator.canShare && navigator.canShare({ files: [file] })){
+        try{
+          await navigator.share({ title, files: [file] });
+          return;
+        }catch(err){
+          if (err && err.name === 'AbortError') return; // user cancelled, not an error
+          // fall through to download/text fallback below
+        }
+      }
+
+      // No file-sharing support here (e.g. desktop browser) — just download the image directly.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=> URL.revokeObjectURL(url), 2000);
+      showToast('Image downloaded');
+      return;
+    }
+
+    // Last-resort fallback if canvas image generation itself failed: old plain-text share.
+    const text = buildSummaryText();
     if (navigator.share){
       try{
         await navigator.share({ title, text });
-        return; // shared successfully
+        return;
       }catch(err){
-        if (err && err.name === 'AbortError') return; // user cancelled the share sheet, not an error
-        // any other error (e.g. blocked in this embedded view) — fall through to copy
+        if (err && err.name === 'AbortError') return;
       }
     }
-
     const copied = await copyText(text);
     if (copied){
       showToast('Sharing isn\'t available here — copied instead');
@@ -801,6 +1284,18 @@ function renderSummary(){
       showShareModal(text);
     }
   });
+
+  async function copyRichText(plainText, html){
+    try{
+      const item = new ClipboardItem({
+        'text/plain': new Blob([plainText], {type:'text/plain'}),
+        'text/html': new Blob([html], {type:'text/html'}),
+      });
+      await navigator.clipboard.write([item]);
+      return true;
+    }catch(err){ /* rich clipboard not supported here — fall back to plain text */ }
+    return copyText(plainText);
+  }
 
   async function copyText(text){
     try{
@@ -1128,17 +1623,19 @@ async function fetchDayData(dateStr){
 }
 
 function computeDayTotals(dayData){
-  const totals = {green:0, tobacco:0, grabba:0, vapes:0};
+  const totals = {};
+  CATS.forEach(cat => { totals[cat.key] = 0; });
   if (!dayData) return {...totals, expected:0};
   const c = {...emptyCounts(), ...(dayData.counts||{})};
   ITEMS.forEach(it=>{
     const cc = c[it.n];
+    if (!cc) return;
     const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
     if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
     const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
-    if (sold) totals[it.c] += sold * it.p;
+    if (sold && it.c in totals) totals[it.c] += sold * it.p;
   });
-  const expected = totals.green + totals.tobacco + totals.grabba + totals.vapes;
+  const expected = Object.values(totals).reduce((a,b) => a+b, 0);
   return {...totals, expected};
 }
 
@@ -1154,14 +1651,15 @@ async function renderWeekView(){
   dayList.innerHTML = '<div class="history-empty">Loading…</div>';
   summaryEl.innerHTML = '';
 
-  const week = {green:0, tobacco:0, grabba:0, vapes:0, expected:0, collected:0, payroll:0};
+  const week = {expected:0, collected:0, payroll:0};
+  CATS.forEach(cat => { week[cat.key] = 0; });
   const rows = [];
 
   for (let i=0; i<7; i++){
     const d = addDays(monday, i);
     const data = await fetchDayData(d);
     const t = computeDayTotals(data);
-    week.green += t.green; week.tobacco += t.tobacco; week.grabba += t.grabba; week.vapes += t.vapes;
+    CATS.forEach(cat => { week[cat.key] += t[cat.key] || 0; });
     week.expected += t.expected;
     week.collected += (data && data.cashCollected) || 0;
     week.payroll += (data && data.shifts) ? data.shifts.reduce((s,x)=> s + (parseFloat(x.pay)||0), 0) : 0;
@@ -1172,12 +1670,13 @@ async function renderWeekView(){
   const missingClass = missing < 0 ? 'bad' : 'good';
   const missingLabel = missing < 0 ? 'Missing' : (missing > 0 ? 'Over' : 'Even');
 
+  const catRows = CATS.map(cat => `
+    <div class="srow"><span><span class="swatch" style="background:${cat.hex}"></span>${esc(cat.label)}</span><span class="num">${fmt(week[cat.key])}</span></div>
+  `).join('');
+
   summaryEl.innerHTML = `
     <h2>Week Totals</h2>
-    <div class="srow"><span><span class="swatch" style="background:var(--green)"></span>Green</span><span class="num">${fmt(week.green)}</span></div>
-    <div class="srow"><span><span class="swatch" style="background:var(--tobacco)"></span>Tobacco</span><span class="num">${fmt(week.tobacco)}</span></div>
-    <div class="srow"><span><span class="swatch" style="background:var(--grabba)"></span>Grabba</span><span class="num">${fmt(week.grabba)}</span></div>
-    <div class="srow"><span><span class="swatch" style="background:var(--vapes)"></span>Vapes</span><span class="num">${fmt(week.vapes)}</span></div>
+    ${catRows}
     <div class="srow total"><span>Expected revenue</span><span class="num">${fmt(week.expected)}</span></div>
     <div class="srow"><span>Cash / card collected</span><span class="num">${fmt(week.collected)}</span></div>
     <div class="srow"><span>${missingLabel} / over</span><span class="num missing ${missingClass}">${fmt(Math.abs(missing))}</span></div>
@@ -1361,6 +1860,82 @@ async function removeItem(name){
   renderSummary();
 }
 
+// ===================== CATEGORIES =====================
+// Same sync pattern as stores and items: local cache for offline use, cloud
+// table as source of truth, realtime subscription so a category added on one
+// device shows up everywhere.
+let categoriesChannel = null;
+
+function categoriesToCloudRows(){
+  return CATS.map(cat => ({
+    key: cat.key, label: cat.label, hex: cat.hex, bright_hex: cat.brightHex,
+    updated_at: new Date().toISOString()
+  }));
+}
+
+async function saveCategoriesMeta(){
+  try{ localStorage.setItem('categories', JSON.stringify(CATS)); }catch(err){ console.error('could not cache categories locally', err); }
+  if (!cloudEnabled) return;
+  try{
+    const { error } = await sb.from('ledger_categories').upsert(categoriesToCloudRows(), { onConflict: 'key' });
+    if (error) throw error;
+  }catch(err){ console.error('cloud category save failed', err); }
+}
+
+async function pullCategoriesFromCloud(){
+  if (!cloudEnabled) return false;
+  try{
+    const { data, error } = await sb.from('ledger_categories').select('key,label,hex,bright_hex').order('label');
+    if (error) throw error;
+    if (data && data.length){
+      CATS = data.map(r => ({ key: r.key, label: r.label, hex: r.hex, brightHex: r.bright_hex || r.hex }));
+      localStorage.setItem('categories', JSON.stringify(CATS));
+      return true;
+    }
+  }catch(err){ console.error('cloud category fetch failed', err); }
+  return false;
+}
+
+async function seedCloudCategoriesIfEmpty(){
+  if (!cloudEnabled) return;
+  try{
+    const { data, error } = await sb.from('ledger_categories').select('key').limit(1);
+    if (error) throw error;
+    if (!data || data.length === 0){
+      await sb.from('ledger_categories').upsert(categoriesToCloudRows(), { onConflict: 'key' });
+    }
+  }catch(err){ console.error('could not seed cloud categories', err); }
+}
+
+function subscribeToCategoryChanges(){
+  if (!cloudEnabled) return;
+  if (categoriesChannel) sb.removeChannel(categoriesChannel);
+  categoriesChannel = sb.channel('ledger_categories_all')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ledger_categories' }, async () => {
+      const changed = await pullCategoriesFromCloud();
+      if (changed){
+        renderTabs();
+        renderCategories();
+        renderSummary();
+      }
+    })
+    .subscribe();
+}
+
+function categoryNameTaken(name){
+  return CATS.some(c => c.label.trim().toLowerCase() === name.trim().toLowerCase());
+}
+
+async function addCategory(name, hex){
+  const key = slugifyCategoryKey(name);
+  CATS.push({ key, label: name, hex, brightHex: hex });
+  await saveCategoriesMeta();
+  activeTab = key;
+  renderTabs();
+  renderCategories();
+  renderSummary();
+}
+
 async function preloadSavedDates(){
   const dayMap = await fetchAllDaysForStore();
   savedDatesSet = new Set(Object.keys(dayMap));
@@ -1445,6 +2020,136 @@ document.getElementById('newItemPrice').addEventListener('input', e=>{
   });
 });
 
+// A small curated palette to pick from quickly, plus a native color input for
+// anything more specific. Kept visually distinct from the four built-in
+// category colors so a new category doesn't accidentally look identical.
+const CATEGORY_COLOR_PRESETS = ['#2f6fa8','#3a8f4c','#c47a1f','#7c4dbd','#c04270','#3f8f8c','#a0522d','#5a5f7d'];
+let pendingCategoryColor = CATEGORY_COLOR_PRESETS[0];
+
+function openCategoryModal(){
+  pendingCategoryColor = CATEGORY_COLOR_PRESETS[0];
+  document.getElementById('newCategoryName').value = '';
+  document.getElementById('newCategoryCustomColor').value = pendingCategoryColor;
+
+  const swatchWrap = document.getElementById('categoryColorSwatches');
+  swatchWrap.innerHTML = '';
+  CATEGORY_COLOR_PRESETS.forEach(hex=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'color-swatch' + (hex === pendingCategoryColor ? ' selected' : '');
+    btn.style.background = hex;
+    btn.dataset.hex = hex;
+    btn.addEventListener('click', ()=>{
+      pendingCategoryColor = hex;
+      document.getElementById('newCategoryCustomColor').value = hex;
+      swatchWrap.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.hex === hex));
+    });
+    swatchWrap.appendChild(btn);
+  });
+
+  document.getElementById('categoryModal').classList.add('show');
+  setTimeout(()=> document.getElementById('newCategoryName').focus(), 50);
+}
+
+document.getElementById('newCategoryCustomColor').addEventListener('input', e=>{
+  pendingCategoryColor = e.target.value;
+  document.querySelectorAll('#categoryColorSwatches .color-swatch').forEach(s => s.classList.remove('selected'));
+});
+
+document.getElementById('categoryModalCancel').addEventListener('click', ()=>{
+  document.getElementById('categoryModal').classList.remove('show');
+});
+
+document.getElementById('categoryModalAdd').addEventListener('click', async ()=>{
+  const name = document.getElementById('newCategoryName').value.trim();
+  if (!name){ showToast('Enter a category name'); return; }
+  if (categoryNameTaken(name)){ showToast('A category with that name already exists'); return; }
+
+  document.getElementById('categoryModal').classList.remove('show');
+  await addCategory(name, pendingCategoryColor);
+  showToast('Added ' + name);
+});
+
+document.getElementById('newCategoryName').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') document.getElementById('categoryModalAdd').click();
+});
+
+// ===================== EDIT PRICES (bulk) =====================
+function openPriceEditModal(){
+  const list = document.getElementById('priceEditList');
+  list.innerHTML = '';
+
+  CATS.forEach(cat=>{
+    const catItems = ITEMS.filter(it => it.c === cat.key);
+    if (catItems.length === 0) return;
+
+    const header = document.createElement('div');
+    header.className = 'price-edit-cat';
+    header.style.color = cat.hex;
+    header.textContent = cat.label;
+    list.appendChild(header);
+
+    catItems.forEach(it=>{
+      const row = document.createElement('div');
+      row.className = 'price-edit-row';
+      row.innerHTML = `
+        <span class="name">${esc(it.n)}</span>
+        <input type="text" inputmode="decimal" autocomplete="off" data-price-item="${esc(it.n)}" value="${it.p}">
+      `;
+      list.appendChild(row);
+    });
+  });
+
+  list.querySelectorAll('input[data-price-item]').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const clean = sanitizeAmount(e.target.value);
+      if (clean !== e.target.value) e.target.value = clean;
+    });
+  });
+
+  document.getElementById('priceEditModal').classList.add('show');
+}
+
+document.getElementById('editPricesBtn').addEventListener('click', openPriceEditModal);
+
+document.getElementById('priceEditCancel').addEventListener('click', ()=>{
+  document.getElementById('priceEditModal').classList.remove('show');
+});
+
+document.getElementById('priceEditSave').addEventListener('click', async ()=>{
+  const inputs = document.querySelectorAll('#priceEditList input[data-price-item]');
+  let changedCount = 0;
+  let hadInvalid = false;
+
+  inputs.forEach(inp=>{
+    const name = inp.dataset.priceItem;
+    const raw = inp.value.trim();
+    const newPrice = parseFloat(raw);
+    if (!raw || isNaN(newPrice) || newPrice <= 0){ hadInvalid = true; return; }
+    const item = ITEMS.find(it => it.n === name);
+    if (item && item.p !== newPrice){
+      item.p = newPrice;
+      changedCount++;
+    }
+  });
+
+  if (hadInvalid){
+    showToast('Some prices were left blank/invalid — those were skipped');
+  }
+
+  document.getElementById('priceEditModal').classList.remove('show');
+
+  if (changedCount > 0){
+    await saveItemsCatalog();
+    renderTabs();
+    renderCategories();
+    renderSummary();
+    showToast(`Updated ${changedCount} price${changedCount === 1 ? '' : 's'}`);
+  } else if (!hadInvalid){
+    showToast('No changes made');
+  }
+});
+
 // migrate data saved before multi-store support existed (bare 'day:YYYY-MM-DD' keys)
 async function migrateLegacyData(){
   try{
@@ -1494,12 +2199,20 @@ async function init(){
     if (savedItems) ITEMS = JSON.parse(savedItems);
   }catch(err){ /* no item cache yet, default catalog stays in place */ }
 
+  try{
+    const savedCategories = localStorage.getItem('categories');
+    if (savedCategories) CATS = JSON.parse(savedCategories);
+  }catch(err){ /* no category cache yet, default four stay in place */ }
+
   if (cloudEnabled){
     await pullStoresFromCloud();
     subscribeToStoreChanges();
     await seedCloudItemsIfEmpty();
     await pullItemsFromCloud();
     subscribeToItemChanges();
+    await seedCloudCategoriesIfEmpty();
+    await pullCategoriesFromCloud();
+    subscribeToCategoryChanges();
   }
 
   if (!stores || stores.length === 0){
