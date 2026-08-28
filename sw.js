@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ledger-cache-v1';
+const CACHE_NAME = 'ledger-cache-v2';
 const CORE_ASSETS = [
   '/index.html',
   '/manifest.json',
@@ -26,16 +26,30 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Cache-first for our own files, network-first (with cache fallback) for everything else
-// (e.g. the JetBrains Mono font from cdnjs) so the app still opens offline.
+// index.html (and other HTML navigations) use NETWORK-FIRST: always try to
+// fetch the latest version first, and only fall back to the cached copy if
+// there's no connection. This is what makes new deploys show up right away
+// instead of getting stuck on whatever was cached the first time someone
+// opened the app. Static assets (icons, manifest) stay CACHE-FIRST since
+// those rarely change and it's fine — even preferable — to load them instantly
+// from cache.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
   const isSameOrigin = url.origin === self.location.origin;
+  const isHTML = req.mode === 'navigate' || req.headers.get('accept')?.includes('text/html');
 
-  if (isSameOrigin) {
+  if (isSameOrigin && isHTML) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        return res;
+      }).catch(() => caches.match(req).then((cached) => cached || caches.match('/index.html')))
+    );
+  } else if (isSameOrigin) {
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) return cached;
@@ -43,7 +57,7 @@ self.addEventListener('fetch', (event) => {
           const copy = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
           return res;
-        }).catch(() => caches.match('/index.html'));
+        });
       })
     );
   } else {
