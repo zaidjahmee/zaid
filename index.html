@@ -343,7 +343,7 @@
     <button class="day-add" id="addStoreBtn">+ Store</button>
   </div>
   <div class="view-switch">
-    <button id="btnSheet" class="active">Sheet</button>
+    <button id="btnSheet" class="active">Daily</button>
     <button id="btnWeek">Week</button>
     <button id="btnHistory">History</button>
   </div>
@@ -696,7 +696,7 @@ function calcSold(it){
   const c = counts[it.n] || {had:'',gave:'',left:''};
   const had = parseFloat(c.had), gave = parseFloat(c.gave), left = parseFloat(c.left);
   if (isNaN(had) && isNaN(gave) && isNaN(left)) return null;
-  return (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+  return (isNaN(had)?0:had) + (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
 }
 function isTouched(it){
   const c = counts[it.n] || {};
@@ -1271,7 +1271,7 @@ function renderSummary(){
   });
 
   document.getElementById('sendBtn').addEventListener('click', async ()=>{
-    const title = `Shift Sheet — ${currentDate}`;
+    const title = `Daily Summary — ${currentDate}`;
     const filename = `shift-sheet-${currentDate}.png`;
 
     let blob = null;
@@ -1551,7 +1551,7 @@ async function renderHistory(){
     const dayMap = await fetchAllDaysForStore();
     const dates = Object.keys(dayMap).sort().reverse();
     if (dates.length === 0){
-      list.innerHTML = '<div class="history-empty">No saved days yet for this store. Start entering counts on today\'s sheet.</div>';
+      list.innerHTML = '<div class="history-empty">No saved days yet for this store. Start entering counts on today\'s Daily tab.</div>';
       return;
     }
     const rows = [];
@@ -1564,7 +1564,7 @@ async function renderHistory(){
         const cc = c[it.n];
         const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
         if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
-        const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+        const sold = (isNaN(had)?0:had) + (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
         if (sold) expected += sold * it.p;
       });
       const collected = parsed.cashCollected || 0;
@@ -1634,7 +1634,7 @@ function computeDayTotals(dayData){
     if (!cc) return;
     const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
     if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
-    const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+    const sold = (isNaN(had)?0:had) + (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
     if (sold && it.c in totals) totals[it.c] += sold * it.p;
   });
   const expected = Object.values(totals).reduce((a,b) => a+b, 0);
@@ -1653,7 +1653,7 @@ function computeDayItemDetail(dayData){
     if (!cc) return;
     const had = parseFloat(cc.had), gave = parseFloat(cc.gave), left = parseFloat(cc.left);
     if (isNaN(had) && isNaN(gave) && isNaN(left)) return;
-    const sold = (isNaN(had)?0:had) - (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
+    const sold = (isNaN(had)?0:had) + (isNaN(gave)?0:gave) - (isNaN(left)?0:left);
     map[it.n] = { had: isNaN(had)?0:had, gave: isNaN(gave)?0:gave, left: isNaN(left)?0:left, sold };
   });
   return map;
@@ -1982,7 +1982,7 @@ function wireWeekShareButtons(weekItems, week, missingLabel){
   });
 
   sendBtn.addEventListener('click', async ()=>{
-    const title = `Week Sheet — ${currentWeekLabel}`;
+    const title = `Week Summary — ${currentWeekLabel}`;
     const filename = `week-sheet-${weekAnchor}.png`;
 
     let blob = null;
